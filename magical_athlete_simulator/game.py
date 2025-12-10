@@ -163,7 +163,7 @@ logger.propagate = False
 # ------------------------------
 @dataclass
 class SpaceModifier(ABC):
-    owner_idx: int | None = None  # New field to track specific source
+    owner_idx: int | None  # New field to track specific source
 
     @property
     @abstractmethod
@@ -178,7 +178,9 @@ class SpaceModifier(ABC):
     def on_approach(self, target: int, mover_idx: int, engine: "GameEngine") -> int:
         return target
 
-    def on_land(self, tile: int, racer_idx: int, phase: int, engine: "GameEngine"):
+    def on_land(
+        self, tile: int, racer_idx: int, phase: int, engine: "GameEngine"
+    ) -> None:
         pass
 
     @override
@@ -287,15 +289,22 @@ class Board:
         modifiers = self.dynamic_modifiers[tile]
         if modifier not in modifiers:
             modifiers.add(modifier)
-            logger.debug("Registered %s at tile %s", modifier.name, tile)
+            logger.info(
+                f"BOARD: Registered {modifier.name} (owner={modifier.owner_idx}) at tile {tile}"
+            )
 
     def unregister_modifier(self, tile: int, modifier: "SpaceModifier") -> None:
         modifiers = self.dynamic_modifiers.get(tile)
         if not modifiers or modifier not in modifiers:
+            logger.warning(
+                f"BOARD: Failed to unregister {modifier.name} from {tile} - not found."
+            )
             return
 
         modifiers.remove(modifier)
-        logger.debug("Unregistered %s from tile %s", modifier.name, tile)
+        logger.info(
+            f"BOARD: Unregistered {modifier.name} (owner={modifier.owner_idx}) from tile {tile}"
+        )
 
         if not modifiers:
             _ = self.dynamic_modifiers.pop(tile, None)
@@ -352,6 +361,26 @@ class Board:
                 break
             mod.on_land(tile, racer_idx, phase, engine)
 
+    def dump_state(self):
+        """
+        Logs the location of all dynamic modifiers currently on the board.
+        Useful for debugging test failures.
+        """
+        logger.info("=== BOARD STATE DUMP ===")
+        if not self.dynamic_modifiers:
+            logger.info("  (Board is empty of dynamic modifiers)")
+            return
+
+        # Sort by tile index for readability
+        active_tiles = sorted(self.dynamic_modifiers.keys())
+        for tile in active_tiles:
+            mods = self.dynamic_modifiers[tile]
+            if mods:
+                # Format each modifier as "Name(owner=ID)"
+                mod_strs = [f"{m.name}(owner={m.owner_idx})" for m in mods]
+                logger.info(f"  Tile {tile:02d}: {', '.join(mod_strs)}")
+        logger.info("========================")
+
 
 def build_action_lane_board() -> Board:
     """
@@ -364,10 +393,10 @@ def build_action_lane_board() -> Board:
     return Board(
         length=30,
         static_features={
-            3: [MoveDeltaTile(+2)],
-            6: [MoveDeltaTile(-2)],
-            9: [TripTile()],
-            12: [VictoryPointTile(+1)],
+            3: [MoveDeltaTile(None, 2)],
+            6: [MoveDeltaTile(None, -2)],
+            9: [TripTile(None)],
+            12: [VictoryPointTile(None, 1)],
         },
     )
 
@@ -557,6 +586,9 @@ class GameEngine:
     queue: list[ScheduledEvent] = field(default_factory=list)
     subscribers: dict[type[GameEvent], list[Subscriber]] = field(default_factory=dict)
     modifiers: list[tuple["Modifier", int]] = field(default_factory=list)
+    active_abilities: defaultdict[int, dict[AbilityName, "Ability"]] = field(
+        default_factory=lambda: defaultdict(dict)
+    )
 
     _serial: int = 0
     race_over: bool = False
@@ -573,63 +605,62 @@ class GameEngine:
         self.modifiers.append((modifier, owner_idx))
 
     def update_racer_abilities(self, racer_idx: int, new_abilities: set[AbilityName]):
-        """
-        Updates a racer's abilities, handling the lifecycle of 'gained' and 'lost'
-        abilities to ensure side effects (like board modifiers) are managed correctly.
-        """
         racer = self.get_racer(racer_idx)
-        oldabilities = racer.abilities
+        current_instances = self.active_abilities[racer_idx]
+        old_names = set(current_instances.keys())
 
-        # 1. Calculate diffs to identify what actually changed
-        removed = oldabilities - new_abilities
-        added = new_abilities - oldabilities
+        removed = old_names - new_abilities
+        added = new_abilities - old_names
 
-        # 2. Lifecycle Hook: Loss
-        # Trigger cleanup for abilities being removed (e.g., Huge Baby leaving a tile).
-        for an in removed:
-            # We look up the class to call the static on_loss hook
-            ability_cls = ABILITY_CLASSES.get(an)
-            if ability_cls and hasattr(ability_cls, "on_loss"):
-                ability_cls.on_loss(self, racer_idx)
+        # 1. Handle Removed
+        for name in removed:
+            instance = current_instances.pop(name)
 
-        # 3. Infrastructure Cleanup: Wipe Listeners
-        # Clear event subscribers for this racer
-        for event_type in self.subscribers:
-            self.subscribers[event_type] = [
-                sub
-                for sub in self.subscribers[event_type]
-                if sub.owner_idx != racer_idx
+            # Lifecycle Hook
+            if isinstance(instance, LifecycleManagedMixin):
+                instance.__class__.on_loss(self, racer_idx)
+
+            # Selective Unsubscribe: Only remove subscribers bound to this specific instance
+            for event_type in self.subscribers:
+                self.subscribers[event_type] = [
+                    sub
+                    for sub in self.subscribers[event_type]
+                    # Keep if it belongs to someone else OR it's a different callback instance
+                    if not (
+                        sub.owner_idx == racer_idx
+                        and getattr(sub.callback, "__self__", None) == instance
+                    )
+                ]
+
+            # Remove Modifiers (Roll Modifiers)
+            # We assume roll modifiers use the same name as the ability
+            self.modifiers = [
+                (m, o)
+                for (m, o) in self.modifiers
+                if not (o == racer_idx and m.name == name)
             ]
 
-        # Clear roll modifiers for this racer
-        self.modifiers = [
-            mod_tuple for mod_tuple in self.modifiers if mod_tuple[1] != racer_idx
-        ]
-
-        # 4. Update State
+        # 2. Update State (Intersection remains untouched!)
         racer.abilities = new_abilities
 
-        # 5. Infrastructure Setup & Lifecycle Hook: Gain
-        for an in new_abilities:
-            # --- FIX 1: Decouple Ability checks from Modifier checks ---
-
-            # A. Register Event Listeners (if it's an Ability)
-            ability_cls = ABILITY_CLASSES.get(an)
+        # 3. Handle Added
+        for name in added:
+            ability_cls = ABILITY_CLASSES.get(name)
             if ability_cls:
-                # Create a fresh instance for the event handler
-                ability_instance = ability_cls()
-                ability_instance.register(self, racer_idx)
+                instance = ability_cls()
+                if hasattr(instance, "owner_idx"):
+                    instance.owner_idx = racer_idx
 
-                # Lifecycle Hook: Gain (Only for truly NEW abilities)
-                if an in added and hasattr(ability_cls, "on_gain"):
-                    ability_cls.on_gain(self, racer_idx)
+                instance.register(self, racer_idx)
+                current_instances[name] = instance
 
-            # B. Register Roll Modifiers (if it's a Modifier)
-            # We check MODIFIER_CLASSES separately so we don't skip pure modifiers like Slime
-            if an in MODIFIER_CLASSES:
-                # --- FIX 2: Instantiate the modifier class ---
-                # Previously: self.register_modifier(MODIFIER_CLASSES[an], ...) -> BUG
-                mod_instance = MODIFIER_CLASSES[an]()
+                # FIX: mirror the removal side, use the instance
+                if isinstance(instance, LifecycleManagedMixin):
+                    instance.__class__.on_gain(self, racer_idx)
+
+            # Modifier Setup (for pure modifiers like Slime)
+            if name in MODIFIER_CLASSES:
+                mod_instance = MODIFIER_CLASSES[name]()
                 self.register_modifier(mod_instance, racer_idx)
 
     def get_racer(self, idx: int) -> RacerState:
@@ -755,6 +786,8 @@ class GameEngine:
                 self._handle_move(event)
             case WarpCmdEvent():
                 self._handle_warp(event)
+            case _:
+                pass
 
     def _handle_perform_roll(self, event: PerformRollEvent):
         # 1. New Serial for this specific roll attempt
@@ -988,13 +1021,15 @@ class Modifier(ABC):
 
 class AbilityTrample(Ability):
     name = "Trample"
-    triggers = (PassingEvent,)
+    triggers: tuple[type[GameEvent]] = (PassingEvent,)
 
-    def execute(
-        self, event: PassingEvent, owner_idx: int, engine: "GameEngine"
-    ) -> bool:
+    @override
+    def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
         # Logic: Only trigger if *I* am the mover
         if event.mover_idx != owner_idx:
+            return False
+
+        if not isinstance(event, PassingEvent):
             return False
 
         victim = engine.get_racer(event.victim_idx)
@@ -1008,11 +1043,13 @@ class AbilityTrample(Ability):
 
 class AbilityBananaTrip(Ability):
     name = "BananaTrip"
-    triggers = (PassingEvent,)
+    triggers: tuple[type[GameEvent]] = (PassingEvent,)
 
-    def execute(
-        self, event: PassingEvent, owner_idx: int, engine: "GameEngine"
-    ) -> bool:
+    @override
+    def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
+        if not isinstance(event, PassingEvent):
+            return False
+
         # Logic: Only trigger if *I* am the victim
         if event.victim_idx != owner_idx:
             return False
@@ -1028,7 +1065,7 @@ class AbilityBananaTrip(Ability):
 
 class HugeBabyPush(Ability, LifecycleManagedMixin, SpaceModifier):
     name: AbilityName = "HugeBabyPush"
-    triggers: tuple[GameEvent] = (MoveCmdEvent, WarpCmdEvent, LandingEvent)
+    triggers: tuple[type[GameEvent], ...] = (MoveCmdEvent, WarpCmdEvent, LandingEvent)
 
     priority: int = 10  # Higher than board features (0-9)
 
@@ -1052,12 +1089,14 @@ class HugeBabyPush(Ability, LifecycleManagedMixin, SpaceModifier):
         mod = HugeBabyPush(owner_idx=owner_idx)
         engine.board.unregister_modifier(racer.position, mod)
 
+    @override
     def on_approach(self, target: int, mover_idx: int, engine: "GameEngine") -> int:
         if target == 0:
             return target
         logger.info(f"Huge Baby already occupies {target}!")
         return max(0, target - 1)
 
+    @override
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
         me = engine.get_racer(owner_idx)
 
