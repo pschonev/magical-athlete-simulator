@@ -1063,52 +1063,74 @@ class AbilityBananaTrip(Ability):
         return True
 
 
-class HugeBabyPush(Ability, LifecycleManagedMixin, SpaceModifier):
+@dataclass(eq=False)
+class HugeBabyModifier(SpaceModifier):
+    """
+    The physical manifestation of the Huge Baby on the board.
+    Blocks others from entering the tile by redirecting them backward.
+    """
+
+    # Name used for equality checks and logging
+    _name: str = "HugeBabyBlocker"
+    priority: int = 10  # High priority to override standard tiles
+
+    @property
+    @override
+    def name(self) -> str:
+        return self._name
+
+    @override
+    def on_approach(self, target: int, mover_idx: int, engine: "GameEngine") -> int:
+        # Prevent others from entering the tile
+        if target == 0:
+            return target
+
+        logger.info(f"Huge Baby already occupies {target}!")
+        # Redirect to the previous tile
+        return max(0, target - 1)
+
+
+class HugeBabyPush(Ability, LifecycleManagedMixin):
     name: AbilityName = "HugeBabyPush"
     triggers: tuple[type[GameEvent], ...] = (MoveCmdEvent, WarpCmdEvent, LandingEvent)
 
-    priority: int = 10  # Higher than board features (0-9)
-
-    def __init__(self, owner_idx: int | None = None):
-        self.owner_idx = owner_idx
+    def _get_modifier(self, owner_idx: int) -> HugeBabyModifier:
+        """Helper to create the modifier instance for this specific owner."""
+        return HugeBabyModifier(owner_idx=owner_idx)
 
     @override
     @staticmethod
     def on_gain(engine: "GameEngine", owner_idx: int):
+        # When ability is equipped, if racer is on board, spawn the modifier
         racer = engine.get_racer(owner_idx)
         if racer.position > 0:
-            # Register with explicit owner identity
-            mod = HugeBabyPush(owner_idx=owner_idx)
+            mod = HugeBabyModifier(owner_idx=owner_idx)
             engine.board.register_modifier(racer.position, mod)
 
     @override
     @staticmethod
     def on_loss(engine: "GameEngine", owner_idx: int):
+        # When ability is removed, clean up the modifier
         racer = engine.get_racer(owner_idx)
-        # Unregister finding the exact same identity
-        mod = HugeBabyPush(owner_idx=owner_idx)
+        mod = HugeBabyModifier(owner_idx=owner_idx)
         engine.board.unregister_modifier(racer.position, mod)
-
-    @override
-    def on_approach(self, target: int, mover_idx: int, engine: "GameEngine") -> int:
-        if target == 0:
-            return target
-        logger.info(f"Huge Baby already occupies {target}!")
-        return max(0, target - 1)
 
     @override
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
         me = engine.get_racer(owner_idx)
+        mod = self._get_modifier(owner_idx)
 
-        # CASE 1: Departure (Unregister)
+        # CASE 1: Departure (Clean up old modifier)
+        # We listen to Move/Warp commands to remove the blocker *before* the move executes.
         if isinstance(event, (MoveCmdEvent, WarpCmdEvent)):
             if event.racer_idx != owner_idx:
                 return False
 
-            engine.board.unregister_modifier(me.position, self)
+            # Remove the modifier from the CURRENT position before moving
+            engine.board.unregister_modifier(me.position, mod)
             return False
 
-        # CASE 2: Arrival (Register + Push)
+        # CASE 2: Arrival (Place new modifier + Active Push)
         if isinstance(event, LandingEvent):
             if event.mover_idx != owner_idx:
                 return False
@@ -1116,10 +1138,11 @@ class HugeBabyPush(Ability, LifecycleManagedMixin, SpaceModifier):
             if event.tile_idx == 0:
                 return False
 
-            # A. Register
-            engine.board.register_modifier(event.tile_idx, self)
+            # A. Place the Modifier (Factory logic)
+            engine.board.register_modifier(event.tile_idx, mod)
 
-            # B. The "Active" Push
+            # B. Execute "Active Push" on current occupants
+            # (The modifier handles blocking *future* entries, but we must clear *current* ones)
             victims = [
                 r
                 for r in engine.state.racers
