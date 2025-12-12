@@ -365,7 +365,11 @@ class Board:
             visited.add(current)
             new_target = current
 
-            for mod in self.get_modifiers_at(current):
+            for mod in (
+                mod
+                for mod in self.get_modifiers_at(current)
+                if isinstance(mod, ApproachHookMixin)
+            ):
                 redirected = mod.on_approach(current, mover_idx, engine)
                 if redirected != current:
                     logger.debug(
@@ -393,7 +397,11 @@ class Board:
         phase: int,
         engine: "GameEngine",
     ) -> None:
-        for mod in self.get_modifiers_at(tile):
+        for mod in (
+            mod
+            for mod in self.get_modifiers_at(tile)
+            if isinstance(mod, LandingHookMixin)
+        ):
             current_pos = engine.get_racer_pos(racer_idx)
             if current_pos != tile:
                 break
