@@ -183,3 +183,23 @@ def test_huge_baby_blocker_is_removed_when_pulled(scenario: type[GameScenario]):
     assert game.get_racer(2).position == 5, (
         "Scoocher should land on 5. If it's on 4, the old blocker was not removed."
     )
+
+
+def test_jump_over_huge_baby(scenario: type[GameScenario]):
+    """
+    Scenario: Huge Baby is at 5. Racer moves 0 -> 6.
+    Verify: Huge Baby acts as a blocker for the TILE, not a wall for movement.
+    The racer should successfully jump over the baby.
+    """
+    game = scenario(
+        [
+            RacerConfig(0, "Centaur", start_pos=0),
+            RacerConfig(1, "HugeBaby", start_pos=5),
+        ],
+        dice_rolls=[6],
+    )
+
+    game.run_turn()
+
+    # 0 -> 6 (Jumps over 5)
+    assert game.get_racer(0).position == 6

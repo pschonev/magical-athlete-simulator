@@ -55,3 +55,23 @@ def test_gunk_triggers_scoocher(scenario: type[GameScenario]):
 
     # 2. Check Scoocher: Moved 10 -> 11.
     assert game.get_racer(2).position == 11
+
+
+def test_gunk_slime_stacking_with_boost(scenario: type[GameScenario]):
+    """
+    Scenario: PartyAnimal (Boost +1) is Slimed by Gunk (-1).
+    Verify: The modifiers cancel out perfectly.
+    """
+    game = scenario(
+        [
+            RacerConfig(0, "PartyAnimal", start_pos=2),  # Neighboring Gunk
+            RacerConfig(1, "Gunk", start_pos=1),
+        ],
+        dice_rolls=[4],
+    )
+
+    game.run_turn()
+
+    # Base 4 + 1 (Boost) - 1 (Slime) = 4.
+    # Move 2 -> 6.
+    assert game.get_racer(0).position == 6
