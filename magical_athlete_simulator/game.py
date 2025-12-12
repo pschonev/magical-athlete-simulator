@@ -1406,33 +1406,54 @@ class AbilityMagicalReroll(Ability):
 
 
 class AbilityCopyLead(Ability):
-    name = "CopyLead"
-    triggers = (PostMoveEvent, PostWarpEvent, TurnStartEvent)
+    name: AbilityName = "CopyLead"
+    triggers: tuple[type[GameEvent], ...] = (
+        TurnStartEvent,
+        PostMoveEvent,
+        PostWarpEvent,
+    )
 
+    @override
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
-        me = engine.get_racer(owner_idx)
-        active = [
-            r for r in engine.state.racers if not r.finished and r.idx != owner_idx
-        ]
-        if not active:
+        if not isinstance(event, (TurnStartEvent, PostWarpEvent, PostMoveEvent)):
             return False
 
-        max_pos = max(r.position for r in active)
-        leaders = [r for r in active if r.position == max_pos]
-        leader = min(leaders, key=lambda r: r.idx)
+        me = engine.get_racer(owner_idx)
+        racers = engine.state.racers
 
-        current_abilities = me.abilities
-        # We rely on global RACER_ABILITIES here, could be injected
-        target_abilities = RACER_ABILITIES.get(leader.name, set()) | {self.name}
+        # 1. Find all racers who are strictly ahead of Copycat
+        potential_targets = [
+            r for r in racers if r.position > me.position and not r.finished
+        ]
 
-        if current_abilities != target_abilities:
-            logger.info(f"{self.name}: Switching to copy {leader.name}")
-            engine.update_racer_abilities(owner_idx, target_abilities)
-            # Does changing abilities count as "Triggering" the power?
-            # Usually yes, it's a visible effect.
-            return True
+        if not potential_targets:
+            # If no one is ahead, do nothing. Copycat keeps its current abilities.
+            logger.info(f"{self.name}: No one ahead to copy.")
+            return False
 
-        return False
+        # 2. Find the highest position among those ahead
+        max_pos = max(r.position for r in potential_targets)
+
+        # 3. Filter for leaders at that highest position
+        leaders = [r for r in potential_targets if r.position == max_pos]
+
+        # 4. Deterministic Tie-breaking: Sort by index and pick the first one.
+        # This is the key change for testability.
+        leaders.sort(key=lambda r: r.idx)
+        target = leaders[0]
+
+        # Avoid redundant updates if we are already copying this racer's kit
+        if me.abilities == target.abilities:
+            return False
+
+        logger.info(
+            f"{self.name}: {me.repr} is copying abilities from leader {target.repr}."
+        )
+
+        # 5. Update abilities
+        engine.update_racer_abilities(owner_idx, target.abilities)
+
+        return True
 
 
 @dataclass(eq=False)
