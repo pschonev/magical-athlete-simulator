@@ -5,7 +5,7 @@ import random
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Literal, Callable, Any, Protocol, get_args, override
+from typing import Literal, Callable, Any, Protocol, final, get_args, override
 
 from rich.logging import RichHandler
 
@@ -159,35 +159,28 @@ logger.propagate = False
 
 
 # ------------------------------
-# 2. Board
+# 2. Modifiers
 # ------------------------------
+
+# --- Base Definitions ---
+
+
 @dataclass
-class SpaceModifier(ABC):
-    owner_idx: int | None  # New field to track specific source
+class Modifier(ABC):
+    """Base class for all persistent effects."""
+
+    owner_idx: int | None
 
     @property
     @abstractmethod
     def name(self) -> str:
         pass
 
-    @property
-    @abstractmethod
-    def priority(self) -> int:
-        pass
-
-    def on_approach(self, target: int, mover_idx: int, engine: "GameEngine") -> int:
-        return target
-
-    def on_land(
-        self, tile: int, racer_idx: int, phase: int, engine: "GameEngine"
-    ) -> None:
-        pass
-
+    # Equality check for safe add/remove
     @override
     def __eq__(self, other):
-        if not isinstance(other, SpaceModifier):
+        if not isinstance(other, Modifier):
             return NotImplemented
-        # Equality now requires matching Owner ID
         return self.name == other.name and self.owner_idx == other.owner_idx
 
     @override
@@ -195,13 +188,58 @@ class SpaceModifier(ABC):
         return hash((self.name, self.owner_idx))
 
 
+class RollModificationMixin(ABC):
+    """Mixin for modifiers that alter dice rolls."""
+
+    @abstractmethod
+    def modify_roll(
+        self, query: "MoveDistanceQuery", owner_idx: int, engine: "GameEngine"
+    ) -> None:
+        pass
+
+
+# --- Concrete Implementations ---
+
+
+class ApproachHookMixin(ABC):
+    """Allows a modifier to redirect incoming racers (e.g., Huge Baby blocking)."""
+
+    @abstractmethod
+    def on_approach(self, target: int, mover_idx: int, engine: "GameEngine") -> int:
+        pass
+
+
+class LandingHookMixin(ABC):
+    """Allows a modifier to react when a racer stops on the tile (e.g., Trip, VP)."""
+
+    @abstractmethod
+    def on_land(
+        self, tile: int, racer_idx: int, phase: int, engine: "GameEngine"
+    ) -> None:
+        pass
+
+
+@dataclass(eq=False)
+class SpaceModifier(Modifier, ABC):
+    """Base for board features. Can mix in Approach or Landing hooks."""
+
+    priority: int = 5
+
+
+@dataclass(eq=False)
+class RacerModifier(Modifier, ABC):
+    """Attached to Racers (e.g. SlimeDebuff)."""
+
+    pass
+
+
 @dataclass
-class MoveDeltaTile(SpaceModifier):
+class MoveDeltaTile(SpaceModifier, LandingHookMixin):
     """
     On landing, queue a move of +delta (forward) or -delta (backward).
     """
 
-    delta: int
+    delta: int = 0
     priority: int = 5
 
     @property
@@ -223,7 +261,7 @@ class MoveDeltaTile(SpaceModifier):
 
 
 @dataclass
-class TripTile(SpaceModifier):
+class TripTile(SpaceModifier, LandingHookMixin):
     """
     On landing, trip the racer (they skip their next main move).
     """
@@ -243,12 +281,12 @@ class TripTile(SpaceModifier):
 
 
 @dataclass
-class VictoryPointTile(SpaceModifier):
+class VictoryPointTile(SpaceModifier, LandingHookMixin):
     """
     On landing, grant +1 VP (or a configured amount).
     """
 
-    amount: int
+    amount: int = 1
     priority: int = 5
 
     @property
@@ -463,6 +501,7 @@ class GameEvent:
     pass
 
 
+@final
 class Phase:
     SYSTEM = 0
     PRE_MAIN = 10
@@ -550,6 +589,7 @@ class MoveDistanceQuery:
     racer_idx: int
     base_amount: int
     modifiers: list[int] = field(default_factory=list)
+    modifier_sources: list[tuple[str, int]] = field(default_factory=list)
 
     @property
     def final_value(self) -> int:
@@ -585,14 +625,36 @@ class GameEngine:
     board: Board = field(default_factory=BOARD_DEFINITIONS["standard"])
     queue: list[ScheduledEvent] = field(default_factory=list)
     subscribers: dict[type[GameEvent], list[Subscriber]] = field(default_factory=dict)
-    modifiers: list[tuple["Modifier", int]] = field(default_factory=list)
     active_abilities: defaultdict[int, dict[AbilityName, "Ability"]] = field(
         default_factory=lambda: defaultdict(dict)
+    )
+    racer_modifiers: defaultdict[int, list[RacerModifier]] = field(
+        default_factory=lambda: defaultdict(list)
     )
 
     _serial: int = 0
     race_over: bool = False
     history: set[tuple[int, int]] = field(default_factory=set)
+
+    def __post_init__(self) -> None:
+        """
+        Assigns starting abilities to all racers and fires on_gain hooks.
+        Safe to call even if abilities are already set to the same values.
+        """
+        log_context.reset()
+        for racer in self.state.racers:
+            initial = RACER_ABILITIES.get(racer.name, set())
+            self.update_racer_abilities(racer.idx, initial)
+
+    def add_racer_modifier(self, target_idx: int, modifier: RacerModifier):
+        if modifier not in self.racer_modifiers[target_idx]:
+            self.racer_modifiers[target_idx].append(modifier)
+            logger.info(f"ENGINE: Added {modifier.name} to Racer {target_idx}")
+
+    def remove_racer_modifier(self, target_idx: int, modifier: RacerModifier):
+        if modifier in self.racer_modifiers[target_idx]:
+            self.racer_modifiers[target_idx].remove(modifier)
+            logger.info(f"ENGINE: Removed {modifier.name} from Racer {target_idx}")
 
     def subscribe(
         self, event_type: type[GameEvent], callback: AbilityCallback, owner_idx: int
@@ -600,9 +662,6 @@ class GameEngine:
         if event_type not in self.subscribers:
             self.subscribers[event_type] = []
         self.subscribers[event_type].append(Subscriber(callback, owner_idx))
-
-    def register_modifier(self, modifier: "Modifier", owner_idx: int):
-        self.modifiers.append((modifier, owner_idx))
 
     def update_racer_abilities(self, racer_idx: int, new_abilities: set[AbilityName]):
         racer = self.get_racer(racer_idx)
@@ -616,31 +675,22 @@ class GameEngine:
         for name in removed:
             instance = current_instances.pop(name)
 
-            # Lifecycle Hook
+            # Lifecycle Hook (This removes modifiers via on_loss)
             if isinstance(instance, LifecycleManagedMixin):
                 instance.__class__.on_loss(self, racer_idx)
 
-            # Selective Unsubscribe: Only remove subscribers bound to this specific instance
+            # Selective Unsubscribe
             for event_type in self.subscribers:
                 self.subscribers[event_type] = [
                     sub
                     for sub in self.subscribers[event_type]
-                    # Keep if it belongs to someone else OR it's a different callback instance
                     if not (
                         sub.owner_idx == racer_idx
                         and getattr(sub.callback, "__self__", None) == instance
                     )
                 ]
 
-            # Remove Modifiers (Roll Modifiers)
-            # We assume roll modifiers use the same name as the ability
-            self.modifiers = [
-                (m, o)
-                for (m, o) in self.modifiers
-                if not (o == racer_idx and m.name == name)
-            ]
-
-        # 2. Update State (Intersection remains untouched!)
+        # 2. Update State
         racer.abilities = new_abilities
 
         # 3. Handle Added
@@ -654,14 +704,9 @@ class GameEngine:
                 instance.register(self, racer_idx)
                 current_instances[name] = instance
 
-                # FIX: mirror the removal side, use the instance
+                # Lifecycle Hook (This adds modifiers via on_gain)
                 if isinstance(instance, LifecycleManagedMixin):
                     instance.__class__.on_gain(self, racer_idx)
-
-            # Modifier Setup (for pure modifiers like Slime)
-            if name in MODIFIER_CLASSES:
-                mod_instance = MODIFIER_CLASSES[name]()
-                self.register_modifier(mod_instance, racer_idx)
 
     def get_racer(self, idx: int) -> RacerState:
         return self.state.racers[idx]
@@ -783,33 +828,40 @@ class GameEngine:
             case ResolveMainMoveEvent():
                 self._resolve_main_move(event)
             case MoveCmdEvent():
+                self.publish_to_subscribers(event)
                 self._handle_move(event)
             case WarpCmdEvent():
+                self.publish_to_subscribers(event)
                 self._handle_warp(event)
             case _:
                 pass
 
     def _handle_perform_roll(self, event: PerformRollEvent):
-        # 1. New Serial for this specific roll attempt
         self.state.roll_state.serial_id += 1
         current_serial = self.state.roll_state.serial_id
 
-        # 2. Roll & Modifiers
         base = self.rng.randint(1, 6)
         query = MoveDistanceQuery(event.racer_idx, base)
 
-        # Apply modifiers (logs triggers internally)
-        for mod, owner_idx in self.modifiers:
-            if not self.get_racer(owner_idx).finished:
-                mod.modify(query, owner_idx, self)
+        # Apply ALL modifiers attached to this racer
+        for mod in self.racer_modifiers[event.racer_idx]:
+            if isinstance(mod, RollModificationMixin):
+                mod.modify_roll(query, mod.owner_idx, self)
 
         final = query.final_value
         self.state.roll_state.base_value = base
         self.state.roll_state.final_value = final
 
-        logger.info(
-            f"Dice Roll: {base} (Mods: {sum(query.modifiers)}) -> Result: {final}"
-        )
+        # Logging with sources
+        if query.modifier_sources:
+            parts = [f"{name}:{delta:+d}" for (name, delta) in query.modifier_sources]
+            mods_str = ", ".join(parts)
+            total_delta = sum(delta for _, delta in query.modifier_sources)
+            logger.info(
+                f"Dice Roll: {base} (Mods: {total_delta} [{mods_str}]) -> Result: {final}"
+            )
+        else:
+            logger.info(f"Dice Roll: {base} (Mods: 0) -> Result: {final}")
 
         # 3. Fire the 'Window' event. Listeners can call trigger_reroll() here.
         self.push_event(
@@ -839,14 +891,12 @@ class GameEngine:
             return
 
         start = racer.position
-        # OLD: end = start + evt.distance
-        # NEW: Calculate intended destination, then resolve through board
         intended = start + evt.distance
         end = self.board.resolve_position(intended, evt.racer_idx, self)
 
         logger.info(f"Move: {racer.repr} {start}->{end} ({evt.source})")
 
-        # Process passing events (unchanged logic)
+        # Process passing events
         if evt.distance > 0:
             for tile in range(start + 1, min(end, self.board.length)):
                 if tile < end:
@@ -865,7 +915,7 @@ class GameEngine:
         if self._check_finish(racer):
             return
 
-        # NEW: Trigger board features after landing
+        # Trigger board features after landing
         self.board.trigger_on_land(end, racer.idx, evt.phase, self)
 
         # Emit landing event for abilities to react
@@ -876,7 +926,7 @@ class GameEngine:
         if racer.finished:
             return
 
-        # NEW: Even warps should respect spatial modifiers
+        # Even warps should respect spatial modifiers
         # (e.g., if someone warps onto Huge Baby's tile, they get redirected)
         resolved_target = self.board.resolve_position(
             evt.target_tile, evt.racer_idx, self
@@ -893,10 +943,6 @@ class GameEngine:
         self.push_event(LandingEvent(racer.idx, resolved_target), phase=evt.phase)
 
     def _check_finish(self, racer: RacerState) -> bool:
-        """
-        Check if racer crossed finish line. If yes, mark them and emit event.
-        Returns True if they finished (so caller can short-circuit).
-        """
         if not racer.finished and racer.position >= self.board.length:
             racer.finished = True
             finishing_position = len(self.state.finished_order) + 1
@@ -904,12 +950,16 @@ class GameEngine:
 
             logger.info(f"!!! {racer.repr} FINISHED rank {finishing_position} !!!")
 
-            # Emit the finish event at high priority so Prophet can react immediately
+            # Emit finish event so others can react (Mastermind, etc.)
             self.push_event(
-                RacerFinishedEvent(racer.idx, finishing_position), phase=Phase.REACTION
+                RacerFinishedEvent(racer.idx, finishing_position),
+                phase=Phase.REACTION,
             )
 
-            # Check if race is over (2+ finishers)
+            # NEW: strip all abilities from this racer and fire on_loss hooks
+            self.update_racer_abilities(racer.idx, set())
+
+            # existing race_over logic...
             if len(self.state.finished_order) >= 2:
                 self.race_over = True
                 self.queue.clear()
@@ -922,9 +972,8 @@ class GameEngine:
         logger.info("=== FINAL STANDINGS ===")
         for _, racer in enumerate(self.state.racers):
             logger.info(
-                f"Result: {racer.repr} pos={racer.position} ",
-                f"vp={getattr(racer, 'vp', 0)} ",
-                f"finished={racer.finished}",
+                f"Result: {racer.repr} pos={racer.position} "
+                f"vp={racer.victory_points} finished={racer.finished}",
             )
 
     def advance_turn(self):
@@ -983,13 +1032,12 @@ class Ability(ABC):
             ctx = f"Reacting to {event.__class__.__name__}"
             engine.emit_ability_trigger(owner_idx, self.name, ctx)
 
-    @abstractmethod
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
         """
         Core logic. Returns True if the ability actually fired/affected game state,
         False if conditions weren't met (e.g. wrong target).
         """
-        pass
+        return False
 
 
 class LifecycleManagedMixin(ABC):
@@ -1004,18 +1052,6 @@ class LifecycleManagedMixin(ABC):
         pass
 
 
-class Modifier(ABC):
-    @property
-    @abstractmethod
-    def name(self) -> AbilityName:
-        """The unique name of the ability (e.g. 'Trample', 'ScoochStep')."""
-        pass
-
-    @abstractmethod
-    def modify(self, query: MoveDistanceQuery, owner_idx: int, engine: "GameEngine"):
-        pass
-
-
 # --- Implementations ---
 
 
@@ -1025,11 +1061,11 @@ class AbilityTrample(Ability):
 
     @override
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
-        # Logic: Only trigger if *I* am the mover
-        if event.mover_idx != owner_idx:
+        if not isinstance(event, PassingEvent):
             return False
 
-        if not isinstance(event, PassingEvent):
+        # Logic: Only trigger if *I* am the mover
+        if event.mover_idx != owner_idx:
             return False
 
         victim = engine.get_racer(event.victim_idx)
@@ -1064,20 +1100,14 @@ class AbilityBananaTrip(Ability):
 
 
 @dataclass(eq=False)
-class HugeBabyModifier(SpaceModifier):
+class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
     """
     The physical manifestation of the Huge Baby on the board.
     Blocks others from entering the tile by redirecting them backward.
     """
 
-    # Name used for equality checks and logging
-    _name: str = "HugeBabyBlocker"
-    priority: int = 10  # High priority to override standard tiles
-
-    @property
-    @override
-    def name(self) -> str:
-        return self._name
+    name: str = "HugeBabyBlocker"
+    priority: int = 10
 
     @override
     def on_approach(self, target: int, mover_idx: int, engine: "GameEngine") -> int:
@@ -1088,6 +1118,23 @@ class HugeBabyModifier(SpaceModifier):
         logger.info(f"Huge Baby already occupies {target}!")
         # Redirect to the previous tile
         return max(0, target - 1)
+
+    @override
+    def __eq__(self, other):
+        """
+        Force value equality. This is needed because the parent dataclass
+        (SpaceModifier) uses eq=False, which defaults to identity checks,
+        ignoring the __eq__ method from the grandparent (Modifier).
+        """
+        if not isinstance(other, Modifier):
+            return NotImplemented
+        # Compare by value, not by object identity.
+        return self.name == other.name and self.owner_idx == other.owner_idx
+
+    @override
+    def __hash__(self):
+        """Ensure hash is consistent with the value-based equality check."""
+        return hash((self.name, self.owner_idx))
 
 
 class HugeBabyPush(Ability, LifecycleManagedMixin):
@@ -1118,16 +1165,28 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
     @override
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
         me = engine.get_racer(owner_idx)
-        mod = self._get_modifier(owner_idx)
 
         # CASE 1: Departure (Clean up old modifier)
-        # We listen to Move/Warp commands to remove the blocker *before* the move executes.
         if isinstance(event, (MoveCmdEvent, WarpCmdEvent)):
             if event.racer_idx != owner_idx:
                 return False
 
-            # Remove the modifier from the CURRENT position before moving
-            engine.board.unregister_modifier(me.position, mod)
+            current_pos = me.position
+            modifiers = engine.board.dynamic_modifiers.get(current_pos)
+
+            if modifiers:
+                # Find the blocker instance owned by me
+                blocker = next(
+                    (
+                        m
+                        for m in modifiers
+                        if isinstance(m, HugeBabyModifier) and m.owner_idx == owner_idx
+                    ),
+                    None,
+                )
+                if blocker:
+                    engine.board.unregister_modifier(current_pos, blocker)
+
             return False
 
         # CASE 2: Arrival (Place new modifier + Active Push)
@@ -1139,6 +1198,7 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
                 return False
 
             # A. Place the Modifier (Factory logic)
+            mod = self._get_modifier(owner_idx)
             engine.board.register_modifier(event.tile_idx, mod)
 
             # B. Execute "Active Push" on current occupants
@@ -1165,7 +1225,7 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
 
 class AbilityScoochStep(Ability):
     name = "ScoochStep"
-    triggers = (AbilityTriggeredEvent,)
+    triggers: tuple[type[GameEvent], ...] = (AbilityTriggeredEvent,)
 
     @override
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
@@ -1194,11 +1254,13 @@ class AbilityScoochStep(Ability):
 
 class AbilityPartyPull(Ability):
     name = "PartyPull"
-    triggers = (TurnStartEvent,)
+    triggers: tuple[type[GameEvent], ...] = (TurnStartEvent,)
 
-    def execute(
-        self, event: TurnStartEvent, owner_idx: int, engine: "GameEngine"
-    ) -> bool:
+    @override
+    def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
+        if not isinstance(event, TurnStartEvent):
+            return False
+
         if event.racer_idx != owner_idx:
             return False
 
@@ -1230,11 +1292,12 @@ class AbilityPartyPull(Ability):
 
 class AbilityMagicalReroll(Ability):
     name = "MagicalReroll"
-    triggers = (RollModificationWindowEvent,)
+    triggers: tuple[type[GameEvent], ...] = (RollModificationWindowEvent,)
 
-    def execute(
-        self, event: RollModificationWindowEvent, owner_idx: int, engine: "GameEngine"
-    ):
+    @override
+    def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine"):
+        if not isinstance(event, RollModificationWindowEvent):
+            return False
         me = engine.get_racer(owner_idx)
 
         if (
@@ -1287,25 +1350,65 @@ class AbilityCopyLead(Ability):
         return False
 
 
-class ModifierSlime(Modifier):
+@dataclass(eq=False)
+class ModifierSlime(RacerModifier, RollModificationMixin):
+    """
+    Applied TO a victim racer. Reduces their roll by 1.
+    Owned by Gunk.
+    """
+
+    name: str = "Slime"
+
+    @override
+    def modify_roll(
+        self, query: MoveDistanceQuery, owner_idx: int, engine: "GameEngine"
+    ) -> None:
+        # This modifier is attached to the VICTIM, and affects their roll
+        # owner_idx is Gunk, query.racer_idx is the victim
+        query.modifiers.append(-1)
+        query.modifier_sources.append((self.name, -1))
+        engine.emit_ability_trigger(
+            owner_idx, self.name, f"Sliming {engine.get_racer(query.racer_idx).name}"
+        )
+
+
+class AbilitySlime(Ability, LifecycleManagedMixin):
     name = "Slime"
+    triggers: tuple[type[GameEvent], ...] = ()
 
-    def modify(self, query: MoveDistanceQuery, owner_idx: int, engine: "GameEngine"):
+    @override
+    @staticmethod
+    def on_gain(engine: GameEngine, owner_idx: int):
+        # Apply debuff to ALL other active racers
+        for r in engine.state.racers:
+            if r.idx != owner_idx and not r.finished:
+                engine.add_racer_modifier(r.idx, ModifierSlime(owner_idx=owner_idx))
+
+    @override
+    @staticmethod
+    def on_loss(engine: GameEngine, owner_idx: int):
+        # Clean up debuff from everyone
+        for r in engine.state.racers:
+            engine.remove_racer_modifier(r.idx, ModifierSlime(owner_idx=owner_idx))
+
+
+@dataclass(eq=False)
+class ModifierPartySelfBoost(RacerModifier, RollModificationMixin):
+    """
+    Applied TO Party Animal. Boosts their own roll based on neighbors.
+    """
+
+    name: str = "PartySelfBoost"
+
+    @override
+    def modify_roll(
+        self, query: MoveDistanceQuery, owner_idx: int, engine: "GameEngine"
+    ) -> None:
+        # This modifier is attached to Party Animal, affects their own roll
+        # owner_idx is Party Animal, query.racer_idx is also Party Animal
         if query.racer_idx != owner_idx:
-            query.modifiers.append(-1)
-            engine.emit_ability_trigger(
-                owner_idx,
-                self.name,
-                f"Sliming {engine.get_racer(query.racer_idx).name}",
-            )
+            return  # Safety check (should never happen)
 
-
-class ModifierPartyBoost(Modifier):
-    name = "PartyBoost"
-
-    def modify(self, query: MoveDistanceQuery, owner_idx: int, engine: "GameEngine"):
-        if query.racer_idx != owner_idx:
-            return
         owner = engine.get_racer(owner_idx)
         guests = [
             r
@@ -1313,12 +1416,32 @@ class ModifierPartyBoost(Modifier):
             if r.idx != owner_idx and not r.finished and r.position == owner.position
         ]
         if guests:
-            query.modifiers.append(len(guests))
-            # Note: We emit trigger here because the rules say "When power happens".
-            # Static modifiers applying counts as the power 'happening' for that roll.
+            bonus = len(guests)
+            query.modifiers.append(bonus)
+            query.modifier_sources.append((self.name, bonus))
             engine.emit_ability_trigger(
-                owner_idx, self.name, f"Boosted by {len(guests)} guests"
+                owner_idx, self.name, f"Boosted by {bonus} guests"
             )
+
+
+class AbilityPartyBoost(Ability, LifecycleManagedMixin):
+    name = "PartyBoost"
+    triggers: tuple[type[GameEvent], ...] = ()
+
+    @override
+    @staticmethod
+    def on_gain(engine: GameEngine, owner_idx: int):
+        # Apply the "Check for Neighbors" modifier to MYSELF
+        engine.add_racer_modifier(
+            owner_idx, ModifierPartySelfBoost(owner_idx=owner_idx)
+        )
+
+    @override
+    @staticmethod
+    def on_loss(engine: GameEngine, owner_idx: int):
+        engine.remove_racer_modifier(
+            owner_idx, ModifierPartySelfBoost(owner_idx=owner_idx)
+        )
 
 
 # ------------------------------
@@ -1349,8 +1472,5 @@ if __name__ == "__main__":
     roster: list[RacerName] = ["PartyAnimal", "Scoocher", "Magician", "HugeBaby"]
     racers = [RacerState(i, n) for i, n in enumerate(roster)]
     eng = GameEngine(GameState(racers), random.Random(1))
-
-    for r in racers:
-        eng.update_racer_abilities(r.idx, RACER_ABILITIES.get(r.name, set()))
 
     eng.run_race()
