@@ -548,6 +548,13 @@ class ResolveMainMoveEvent(GameEvent):
 
 
 @dataclass(frozen=True)
+class PassingEvent(GameEvent):
+    mover_idx: int
+    victim_idx: int
+    tile_idx: int
+
+
+@dataclass(frozen=True)
 class MoveCmdEvent(GameEvent):
     racer_idx: int
     distance: int
@@ -564,16 +571,39 @@ class WarpCmdEvent(GameEvent):
 
 
 @dataclass(frozen=True)
-class PassingEvent(GameEvent):
-    mover_idx: int
-    victim_idx: int
-    tile_idx: int
+class PreMoveEvent(GameEvent):
+    racer_idx: int
+    start_tile: int
+    distance: int
+    source: str
+    phase: int
 
 
 @dataclass(frozen=True)
-class LandingEvent(GameEvent):
-    mover_idx: int
-    tile_idx: int
+class PreWarpEvent(GameEvent):
+    racer_idx: int
+    start_tile: int
+    target_tile: int
+    source: str
+    phase: int
+
+
+@dataclass(frozen=True)
+class PostMoveEvent(GameEvent):
+    racer_idx: int
+    start_tile: int
+    end_tile: int
+    source: str
+    phase: int
+
+
+@dataclass(frozen=True)
+class PostWarpEvent(GameEvent):
+    racer_idx: int
+    start_tile: int
+    end_tile: int
+    source: str
+    phase: int
 
 
 @dataclass(frozen=True)
@@ -818,21 +848,23 @@ class GameEngine:
             case (
                 TurnStartEvent()
                 | PassingEvent()
-                | LandingEvent()
                 | AbilityTriggeredEvent()
                 | RollModificationWindowEvent()
             ):
                 self.publish_to_subscribers(event)
+
+            case MoveCmdEvent():
+                self._handle_move_cmd(event)
+
+            case WarpCmdEvent():
+                self._handle_warp_cmd(event)
+
             case PerformRollEvent():
                 self._handle_perform_roll(event)
+
             case ResolveMainMoveEvent():
                 self._resolve_main_move(event)
-            case MoveCmdEvent():
-                self.publish_to_subscribers(event)
-                self._handle_move(event)
-            case WarpCmdEvent():
-                self.publish_to_subscribers(event)
-                self._handle_warp(event)
+
             case _:
                 pass
 
@@ -885,19 +917,41 @@ class GameEngine:
         if dist > 0:
             self.push_move(event.racer_idx, dist, "MainMove", phase=Phase.MOVE_EXEC)
 
-    def _handle_move(self, evt: MoveCmdEvent):
+    def _handle_move_cmd(self, evt: MoveCmdEvent):
         racer = self.get_racer(evt.racer_idx)
         if racer.finished:
             return
 
+        # Moving 0 is not moving at all
+        if evt.distance == 0:
+            return
+
         start = racer.position
-        intended = start + evt.distance
-        end = self.board.resolve_position(intended, evt.racer_idx, self)
+        distance = evt.distance
 
-        logger.info(f"Move: {racer.repr} {start}->{end} ({evt.source})")
+        # 1. Departure hook
+        self.publish_to_subscribers(
+            PreMoveEvent(
+                racer_idx=evt.racer_idx,
+                start_tile=start,
+                distance=distance,
+                source=evt.source,
+                phase=evt.phase,
+            )
+        )
 
-        # Process passing events
-        if evt.distance > 0:
+        # 2. Resolve spatial modifiers (Huge Baby etc.)
+        intended = start + distance
+        end = self.board.resolve_position(intended, evt.racer_idx, self)  # [file:1]
+
+        # If you get fully blocked back to your start, treat as “no movement”
+        if end == start:
+            return
+
+        logger.info(f"Move: {racer.repr} {start}->{end} ({evt.source})")  # [file:1]
+
+        # 3. Passing events (unchanged from your current logic)
+        if distance > 0:
             for tile in range(start + 1, min(end, self.board.length)):
                 if tile < end:
                     victims = [
@@ -907,40 +961,80 @@ class GameEngine:
                     ]
                     for v in victims:
                         self.push_event(
-                            PassingEvent(racer.idx, v.idx, tile), phase=Phase.MOVE_EXEC
-                        )
+                            PassingEvent(racer.idx, v.idx, tile),
+                            phase=Phase.MOVE_EXEC,
+                        )  # [file:1]
 
+        # 4. Commit position
         racer.position = end
 
-        if self._check_finish(racer):
+        # Finish check as in your current engine
+        if self._check_finish(racer):  # may log finish + mark race_over, etc. [file:1]
             return
 
-        # Trigger board features after landing
-        self.board.trigger_on_land(end, racer.idx, evt.phase, self)
+        # 5. Board “on land” hooks (Trip, VP, MoveDelta, etc.)
+        self.board.trigger_on_land(end, racer.idx, evt.phase, self)  # [file:1]
 
-        # Emit landing event for abilities to react
-        self.push_event(LandingEvent(racer.idx, end), phase=evt.phase)
+        # 6. Arrival hook
+        self.publish_to_subscribers(
+            PostMoveEvent(
+                racer_idx=evt.racer_idx,
+                start_tile=start,
+                end_tile=end,
+                source=evt.source,
+                phase=evt.phase,
+            )
+        )
 
-    def _handle_warp(self, evt: WarpCmdEvent):
+    def _handle_warp_cmd(self, evt: WarpCmdEvent):
         racer = self.get_racer(evt.racer_idx)
         if racer.finished:
             return
 
-        # Even warps should respect spatial modifiers
-        # (e.g., if someone warps onto Huge Baby's tile, they get redirected)
-        resolved_target = self.board.resolve_position(
-            evt.target_tile, evt.racer_idx, self
+        start = racer.position
+
+        # Warping to the same tile is not movement
+        if start == evt.target_tile:
+            return
+
+        # 1. Departure hook
+        self.publish_to_subscribers(
+            PreWarpEvent(
+                racer_idx=evt.racer_idx,
+                start_tile=start,
+                target_tile=evt.target_tile,
+                source=evt.source,
+                phase=evt.phase,
+            )
         )
 
-        logger.info(f"Warp: {racer.repr} -> {resolved_target} ({evt.source})")
-        racer.position = resolved_target
+        # 2. Resolve spatial modifiers on the target
+        resolved = self.board.resolve_position(
+            evt.target_tile, evt.racer_idx, self
+        )  # [file:1]
+
+        if resolved == start:
+            return
+
+        logger.info(f"Warp: {racer.repr} -> {resolved} ({evt.source})")  # [file:1]
+        racer.position = resolved
 
         if self._check_finish(racer):
             return
 
-        # Trigger board effects and emit landing
-        self.board.trigger_on_land(resolved_target, racer.idx, evt.phase, self)
-        self.push_event(LandingEvent(racer.idx, resolved_target), phase=evt.phase)
+        # 3. Board hooks on landing
+        self.board.trigger_on_land(resolved, racer.idx, evt.phase, self)  # [file:1]
+
+        # 4. Arrival hook
+        self.publish_to_subscribers(
+            PostWarpEvent(
+                racer_idx=evt.racer_idx,
+                start_tile=start,
+                end_tile=resolved,
+                source=evt.source,
+                phase=evt.phase,
+            )
+        )
 
     def _check_finish(self, racer: RacerState) -> bool:
         if not racer.finished and racer.position >= self.board.length:
@@ -1119,36 +1213,24 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
         # Redirect to the previous tile
         return max(0, target - 1)
 
-    @override
-    def __eq__(self, other):
-        """
-        Force value equality. This is needed because the parent dataclass
-        (SpaceModifier) uses eq=False, which defaults to identity checks,
-        ignoring the __eq__ method from the grandparent (Modifier).
-        """
-        if not isinstance(other, Modifier):
-            return NotImplemented
-        # Compare by value, not by object identity.
-        return self.name == other.name and self.owner_idx == other.owner_idx
-
-    @override
-    def __hash__(self):
-        """Ensure hash is consistent with the value-based equality check."""
-        return hash((self.name, self.owner_idx))
-
 
 class HugeBabyPush(Ability, LifecycleManagedMixin):
     name: AbilityName = "HugeBabyPush"
-    triggers: tuple[type[GameEvent], ...] = (MoveCmdEvent, WarpCmdEvent, LandingEvent)
+    triggers: tuple[type[GameEvent], ...] = (
+        PreMoveEvent,
+        PreWarpEvent,
+        PostMoveEvent,
+        PostWarpEvent,
+    )
 
     def _get_modifier(self, owner_idx: int) -> HugeBabyModifier:
         """Helper to create the modifier instance for this specific owner."""
         return HugeBabyModifier(owner_idx=owner_idx)
 
+    # --- on_gain and on_loss remain unchanged ---
     @override
     @staticmethod
     def on_gain(engine: "GameEngine", owner_idx: int):
-        # When ability is equipped, if racer is on board, spawn the modifier
         racer = engine.get_racer(owner_idx)
         if racer.position > 0:
             mod = HugeBabyModifier(owner_idx=owner_idx)
@@ -1157,67 +1239,61 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
     @override
     @staticmethod
     def on_loss(engine: "GameEngine", owner_idx: int):
-        # When ability is removed, clean up the modifier
         racer = engine.get_racer(owner_idx)
         mod = HugeBabyModifier(owner_idx=owner_idx)
         engine.board.unregister_modifier(racer.position, mod)
 
+    # --- REWRITTEN: The core logic is now split into clear phases ---
     @override
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
         me = engine.get_racer(owner_idx)
 
-        # CASE 1: Departure (Clean up old modifier)
-        if isinstance(event, (MoveCmdEvent, WarpCmdEvent)):
+        # --- DEPARTURE LOGIC: Triggered BEFORE the move happens ---
+        if isinstance(event, (PreMoveEvent, PreWarpEvent)):
             if event.racer_idx != owner_idx:
                 return False
 
-            current_pos = me.position
-            modifiers = engine.board.dynamic_modifiers.get(current_pos)
+            start_tile = event.start_tile
+            # No blocker to clean up at the start line
+            if start_tile == 0:
+                return False
 
-            if modifiers:
-                # Find the blocker instance owned by me
-                blocker = next(
-                    (
-                        m
-                        for m in modifiers
-                        if isinstance(m, HugeBabyModifier) and m.owner_idx == owner_idx
-                    ),
-                    None,
-                )
-                if blocker:
-                    engine.board.unregister_modifier(current_pos, blocker)
+            # Clean up the blocker from the tile we are leaving
+            mod_to_remove = self._get_modifier(owner_idx)
+            engine.board.unregister_modifier(start_tile, mod_to_remove)
 
+            # This is a cleanup action, so it should not trigger other abilities
             return False
 
-        # CASE 2: Arrival (Place new modifier + Active Push)
-        if isinstance(event, LandingEvent):
-            if event.mover_idx != owner_idx:
+        # --- ARRIVAL LOGIC: Triggered AFTER the move is complete ---
+        if isinstance(event, (PostMoveEvent, PostWarpEvent)):
+            if event.racer_idx != owner_idx:
                 return False
 
-            if event.tile_idx == 0:
+            end_tile = event.end_tile
+            # Huge Baby does not place a blocker at the start line
+            if end_tile == 0:
                 return False
 
-            # A. Place the Modifier (Factory logic)
-            mod = self._get_modifier(owner_idx)
-            engine.board.register_modifier(event.tile_idx, mod)
+            # 1. Place a new blocker at the destination
+            mod_to_add = self._get_modifier(owner_idx)
+            engine.board.register_modifier(end_tile, mod_to_add)
 
-            # B. Execute "Active Push" on current occupants
-            # (The modifier handles blocking *future* entries, but we must clear *current* ones)
+            # 2. "Active Push": Eject any racers already on this tile
             victims = [
                 r
                 for r in engine.state.racers
-                if r.position == event.tile_idx
-                and r.idx != owner_idx
-                and not r.finished
+                if r.position == end_tile and r.idx != owner_idx and not r.finished
             ]
 
             triggered_push = False
             for v in victims:
-                target = max(0, event.tile_idx - 1)
-                engine.push_warp(v.idx, target, source=self.name, phase=Phase.REACTION)
+                target = max(0, end_tile - 1)
+                engine.push_warp(v.idx, target, source=self.name, phase=event.phase)
                 logger.info(f"Huge Baby pushes {v.repr} to {target}")
                 triggered_push = True
 
+            # Return True if we pushed anyone, triggering Scoocher, etc.
             return triggered_push
 
         return False
@@ -1322,7 +1398,7 @@ class AbilityMagicalReroll(Ability):
 
 class AbilityCopyLead(Ability):
     name = "CopyLead"
-    triggers = (LandingEvent, TurnStartEvent)
+    triggers = (PostMoveEvent, PostWarpEvent, TurnStartEvent)
 
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
         me = engine.get_racer(owner_idx)
