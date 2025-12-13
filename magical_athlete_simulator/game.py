@@ -157,6 +157,54 @@ logger.handlers.clear()
 logger.addHandler(rich_handler)
 logger.propagate = False
 
+# ------------------------------
+# 1b. AI Core & Decision Context
+# ------------------------------
+from enum import Enum, auto
+
+
+class DecisionReason(Enum):
+    """Specific reasons an Agent is being asked to make a decision."""
+
+    MAGICAL_REROLL = auto()
+    COPY_LEAD_TARGET = auto()
+
+
+@dataclass
+class DecisionContext:
+    """Base context containing the minimal state needed for a decision."""
+
+    game_state: "GameState"
+    source_racer_idx: int
+    reason: DecisionReason
+
+
+@dataclass
+class BooleanDecision(DecisionContext):
+    """A Yes/No decision (e.g., should I reroll?)."""
+
+    pass
+
+
+@dataclass
+class SelectionDecision(DecisionContext):
+    """A generic selection from a list of options."""
+
+    options: list[Any]
+
+
+class Agent(ABC):
+    """Base interface for decision making entities."""
+
+    @abstractmethod
+    def make_boolean_decision(self, ctx: BooleanDecision) -> bool:
+        pass
+
+    @abstractmethod
+    def make_selection_decision(self, ctx: SelectionDecision) -> int:
+        """Returns the index of the selected option."""
+        pass
+
 
 # ------------------------------
 # 2. Modifiers
@@ -643,6 +691,84 @@ class ScheduledEvent:
 
 
 # ------------------------------
+# 6b. AI Implementation
+# ------------------------------
+
+
+def ai_should_reroll(ctx: BooleanDecision, board: "Board") -> bool:
+    """
+    Deterministic logic for MagicalReroll.
+    Returns True (Reroll) if:
+    1. The roll is very low (<= 2).
+    2. The landing spot contains a 'Bad' modifier (Trip or negative MoveDelta).
+    """
+    state = ctx.game_state
+    me = state.racers[ctx.source_racer_idx]
+    current_roll = state.roll_state.final_value
+
+    # 1. Base Heuristic: Reroll 1s and 2s automatically
+    if current_roll <= 2:
+        return True
+
+    # 2. Lookahead Logic
+    # Calculate where we would land with the current roll
+    landing_spot = me.position + current_roll
+
+    # We can't look past the finish line (no modifiers there usually)
+    if landing_spot >= board.length:
+        return False
+
+    # Check for hazards on the target tile
+    modifiers = board.get_modifiers_at(landing_spot)
+    for mod in modifiers:
+        # Avoid TripTiles at all costs
+        if isinstance(mod, TripTile):
+            return True
+
+        # Avoid tiles that send us backward
+        if isinstance(mod, MoveDeltaTile) and mod.delta < 0:
+            return True
+
+    return False
+
+
+def ai_choose_copy_target(ctx: SelectionDecision) -> int:
+    """
+    Deterministic logic for CopyLead.
+    Simply picks the first available option.
+    Since the options are sorted by racer index before being passed here,
+    this is completely deterministic.
+    """
+    if not ctx.options:
+        return 0
+
+    # Simple, testable, deterministic: always pick the first valid leader.
+    return 0
+
+
+class SmartAgent(Agent):
+    """
+    A concrete agent that uses deterministic functions to make decisions.
+    """
+
+    def __init__(self, board: "Board"):
+        # We MUST have the board to make smart lookahead decisions
+        self.board = board
+
+    def make_boolean_decision(self, ctx: BooleanDecision) -> bool:
+        if ctx.reason == DecisionReason.MAGICAL_REROLL:
+            # Pass the board specifically for the reroll calculation
+            return ai_should_reroll(ctx, self.board)
+
+        return False  # Default safe option for unknown decisions
+
+    def make_selection_decision(self, ctx: SelectionDecision) -> int:
+        if ctx.reason == DecisionReason.COPY_LEAD_TARGET:
+            return ai_choose_copy_target(ctx)
+        return 0
+
+
+# ------------------------------
 # 5. Engine Core
 # ------------------------------
 
@@ -669,6 +795,7 @@ class GameEngine:
     racer_modifiers: defaultdict[int, list[RacerModifier]] = field(
         default_factory=lambda: defaultdict(list)
     )
+    agents: dict[int, Agent] = field(default_factory=dict)
 
     _serial: int = 0
     race_over: bool = False
@@ -680,9 +807,18 @@ class GameEngine:
         Safe to call even if abilities are already set to the same values.
         """
         log_context.reset()
+
+        for racer in self.state.racers:
+            if racer.idx not in self.agents:
+                # Give them a SmartAgent that knows about the board
+                self.agents[racer.idx] = SmartAgent(self.board)
+
         for racer in self.state.racers:
             initial = RACER_ABILITIES.get(racer.name, set())
             self.update_racer_abilities(racer.idx, initial)
+
+    def get_agent(self, racer_idx: int) -> Agent:
+        return self.agents[racer_idx]
 
     def add_racer_modifier(self, target_idx: int, modifier: RacerModifier):
         if modifier not in self.racer_modifiers[target_idx]:
@@ -1383,23 +1519,32 @@ class AbilityMagicalReroll(Ability):
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine"):
         if not isinstance(event, RollModificationWindowEvent):
             return False
+
         me = engine.get_racer(owner_idx)
 
-        if (
-            event.racer_idx == owner_idx
-            and event.current_roll_val <= 3
-            and me.reroll_count < 2
-        ):
-            me.reroll_count += 1
+        # 1. Eligibility Check
+        if event.racer_idx != owner_idx:
+            return False
+        if me.reroll_count >= 2:
+            return False
 
-            # We manually emit because we want the custom log message ("Disliked roll...")
+        # 2. Ask the Agent
+        agent = engine.get_agent(owner_idx)
+        decision_ctx = BooleanDecision(
+            game_state=engine.state,
+            source_racer_idx=owner_idx,
+            reason=DecisionReason.MAGICAL_REROLL,
+        )
+
+        should_reroll = agent.make_boolean_decision(decision_ctx)
+
+        if should_reroll:
+            me.reroll_count += 1
             engine.emit_ability_trigger(
                 owner_idx, self.name, f"Disliked roll of {event.current_roll_val}"
             )
             engine.trigger_reroll(owner_idx, "MagicalReroll")
-
-            # CHANGED: Return False to prevent the base class from emitting
-            # a second, generic "Reacting to..." trigger event.
+            # Return False to prevent generic emission, as we handled it via emit_ability_trigger
             return False
 
         return False
@@ -1427,32 +1572,33 @@ class AbilityCopyLead(Ability):
         ]
 
         if not potential_targets:
-            # If no one is ahead, do nothing. Copycat keeps its current abilities.
             logger.info(f"{self.name}: No one ahead to copy.")
             return False
 
         # 2. Find the highest position among those ahead
         max_pos = max(r.position for r in potential_targets)
-
-        # 3. Filter for leaders at that highest position
         leaders = [r for r in potential_targets if r.position == max_pos]
-
-        # 4. Deterministic Tie-breaking: Sort by index and pick the first one.
-        # This is the key change for testability.
         leaders.sort(key=lambda r: r.idx)
-        target = leaders[0]
 
-        # Avoid redundant updates if we are already copying this racer's kit
+        # 3. Ask the Agent which leader to copy
+        agent = engine.get_agent(owner_idx)
+        decision_ctx = SelectionDecision(
+            game_state=engine.state,
+            source_racer_idx=owner_idx,
+            reason=DecisionReason.COPY_LEAD_TARGET,
+            options=leaders,
+        )
+
+        selected_index = agent.make_selection_decision(decision_ctx)
+        target = leaders[selected_index]
+
+        # Avoid redundant updates
         if me.abilities == target.abilities:
             return False
 
-        logger.info(
-            f"{self.name}: {me.repr} is copying abilities from leader {target.repr}."
-        )
+        logger.info(f"{self.name}: {me.repr} decided to copy {target.repr}.")
 
-        # 5. Update abilities
         engine.update_racer_abilities(owner_idx, target.abilities)
-
         return True
 
 
