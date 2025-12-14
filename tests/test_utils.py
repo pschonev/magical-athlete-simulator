@@ -46,7 +46,7 @@ class GameScenario:
         racers_config: list[RacerConfig],
         dice_rolls: list[int] | None = None,
     ):
-        racers = []
+        racers: list[RacerState] = []
 
         # 1. Setup Racers from Config
         for cfg in racers_config:
@@ -54,18 +54,18 @@ class GameScenario:
             racers.append(r)
 
         # 2. Mock the RNG
-        self.mock_rng = MagicMock()
+        self.mock_rng: MagicMock = MagicMock()
 
         # 3. Initialize Engine
-        self.state = GameState(racers)
-        self.engine = GameEngine(self.state, self.mock_rng)
+        self.state: GameState = GameState(racers)
+        self.engine: GameEngine = GameEngine(self.state, self.mock_rng)
 
         if dice_rolls:
             self.set_dice_rolls(dice_rolls)
 
     def set_dice_rolls(self, rolls: list[int]):
         """Script the dice rolls (e.g., [1, 6])."""
-        self.mock_rng.randint.side_effect = rolls
+        self.mock_rng.randint.side_effect = rolls  # pyright: ignore[reportAny]
 
     def run_turn(self):
         self.engine.run_turn()

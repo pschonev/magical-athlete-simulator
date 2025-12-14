@@ -5,9 +5,18 @@ import random
 import re
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Callable, Literal, final, get_args, override
+from typing import (
+    ClassVar,
+    Literal,
+    assert_never,
+    cast,
+    final,
+    get_args,
+    override,
+)
 
 from rich.logging import RichHandler
 
@@ -32,6 +41,8 @@ AbilityName = Literal[
     "PartyBoost",
     "MagicalReroll",
 ]
+
+ModifierName = Literal["PartySelfBoost"]
 
 
 # ------------------------------
@@ -87,7 +98,7 @@ class ContextFilter(logging.Filter):
 
     def __init__(self, engine: "GameEngine", name: str = "") -> None:
         super().__init__(name)  # name is for logger-name filtering; keep default
-        self.engine = engine  # store the existing engine instance
+        self.engine: GameEngine = engine  # store the existing engine instance
 
     @override
     def filter(self, record: logging.LogRecord) -> bool:
@@ -99,14 +110,20 @@ class ContextFilter(logging.Filter):
         return True
 
 
-class RichMarkupFormatter(logging.Formatter):
-    """
-    Formatter that converts a log record into a Rich markup string.
-    """
+@dataclass
+class ContextLogRecord(logging.LogRecord):
+    totalturn: int
+    turnlogcount: int
+    racerrepr: str
 
+
+class RichMarkupFormatter(logging.Formatter):
     @override
     def format(self, record: logging.LogRecord) -> str:
-        prefix = f"{record.total_turn}.{record.racer_repr}.{record.turn_log_count}"
+        r = record  # keep runtime object
+        cr = cast("ContextLogRecord", r)
+        prefix = f"{cr.totalturn}.{cr.racerrepr}.{cr.turnlogcount}"
+
         message = record.getMessage()
 
         # --- movement highlighting (see next section) ---
@@ -114,19 +131,26 @@ class RichMarkupFormatter(logging.Formatter):
         # Highlight all movement-related words
         styled = re.sub(r"\bMove\b", f"[{COLOR['move']}]Move[/{COLOR['move']}]", styled)
         styled = re.sub(
-            r"\bMoving\b", f"[{COLOR['move']}]Moving[/{COLOR['move']}]", styled
+            r"\bMoving\b",
+            f"[{COLOR['move']}]Moving[/{COLOR['move']}]",
+            styled,
         )
         styled = re.sub(
-            r"\bPushing\b", f"[{COLOR['move']}]Pushing[/{COLOR['move']}]", styled
+            r"\bPushing\b",
+            f"[{COLOR['move']}]Pushing[/{COLOR['move']}]",
+            styled,
         )
         styled = re.sub(
-            r"\bMainMove\b", f"[{COLOR['move']}]MainMove[/{COLOR['move']}]", styled
+            r"\bMainMove\b",
+            f"[{COLOR['move']}]MainMove[/{COLOR['move']}]",
+            styled,
         )
         styled = re.sub(r"\bWarp\b", f"[{COLOR['warp']}]Warp[/{COLOR['warp']}]", styled)
 
         # Abilities and racer names
         styled = ABILITY_PATTERN.sub(
-            rf"[{COLOR['ability']}]\1[/{COLOR['ability']}]", styled
+            rf"[{COLOR['ability']}]\1[/{COLOR['ability']}]",
+            styled,
         )
         styled = RACER_PATTERN.sub(rf"[{COLOR['racer']}]\1[/{COLOR['racer']}]", styled)
 
@@ -185,14 +209,12 @@ class DecisionContext:
 class BooleanDecision(DecisionContext):
     """A Yes/No decision (e.g., should I reroll?)."""
 
-    pass
-
 
 @dataclass
 class SelectionDecision(DecisionContext):
     """A generic selection from a list of options."""
 
-    options: list[Any]
+    options: list["RacerState"]
 
 
 class Agent(ABC):
@@ -204,8 +226,7 @@ class Agent(ABC):
 
     @abstractmethod
     def make_selection_decision(self, ctx: SelectionDecision) -> int:
-        """Returns the index of the selected option."""
-        pass
+        """Return the index of the selected option."""
 
 
 # ------------------------------
@@ -220,15 +241,15 @@ class Modifier(ABC):
     """Base class for all persistent effects."""
 
     owner_idx: int | None
+    name: ClassVar[AbilityName | str]
 
     @property
-    @abstractmethod
-    def name(self) -> str:
-        pass
+    def display_name(self) -> str:  # instance-level, can be dynamic
+        return self.name
 
     # Equality check for safe add/remove
     @override
-    def __eq__(self, other):
+    def __eq__(self, other: object):
         if not isinstance(other, Modifier):
             return NotImplemented
         return self.name == other.name and self.owner_idx == other.owner_idx
@@ -243,7 +264,10 @@ class RollModificationMixin(ABC):
 
     @abstractmethod
     def modify_roll(
-        self, query: "MoveDistanceQuery", owner_idx: int, engine: "GameEngine"
+        self,
+        query: "MoveDistanceQuery",
+        owner_idx: int | None,
+        engine: "GameEngine",
     ) -> None:
         pass
 
@@ -264,7 +288,11 @@ class LandingHookMixin(ABC):
 
     @abstractmethod
     def on_land(
-        self, tile: int, racer_idx: int, phase: int, engine: "GameEngine"
+        self,
+        tile: int,
+        racer_idx: int,
+        phase: int,
+        engine: "GameEngine",
     ) -> None:
         pass
 
@@ -280,32 +308,32 @@ class SpaceModifier(Modifier, ABC):
 class RacerModifier(Modifier, ABC):
     """Attached to Racers (e.g. SlimeDebuff)."""
 
-    pass
-
 
 @dataclass
 class MoveDeltaTile(SpaceModifier, LandingHookMixin):
-    """
-    On landing, queue a move of +delta (forward) or -delta (backward).
-    """
+    """On landing, queue a move of +delta (forward) or -delta (backward)."""
 
     delta: int = 0
     priority: int = 5
 
     @property
     @override
-    def name(self) -> str:
+    def display_name(self) -> str:
         sign = "+" if self.delta >= 0 else "-"
         return f"MoveDelta({sign}{self.delta})"
 
     @override
     def on_land(
-        self, tile: int, racer_idx: int, phase: int, engine: "GameEngine"
+        self,
+        tile: int,
+        racer_idx: int,
+        phase: int,
+        engine: "GameEngine",
     ) -> None:
         if self.delta == 0:
             return
         racer: RacerState = engine.get_racer(
-            racer_idx
+            racer_idx,
         )  # uses existing GameEngine API.[file:1]
         logger.info(f"{self.name}: Queuing {self.delta} move for {racer.repr}")
         # New move is a separate event, not part of the original main move.[file:1]
@@ -314,16 +342,18 @@ class MoveDeltaTile(SpaceModifier, LandingHookMixin):
 
 @dataclass
 class TripTile(SpaceModifier, LandingHookMixin):
-    """
-    On landing, trip the racer (they skip their next main move).
-    """
+    """On landing, trip the racer (they skip their next main move)."""
 
-    name: str = "TripTile"
+    name: ClassVar[AbilityName | str] = "TripTile"
     priority: int = 5
 
     @override
     def on_land(
-        self, tile: int, racer_idx: int, phase: int, engine: "GameEngine"
+        self,
+        tile: int,
+        racer_idx: int,
+        phase: int,
+        engine: "GameEngine",
     ) -> None:
         racer = engine.get_racer(racer_idx)
         if racer.tripped:
@@ -334,21 +364,23 @@ class TripTile(SpaceModifier, LandingHookMixin):
 
 @dataclass
 class VictoryPointTile(SpaceModifier, LandingHookMixin):
-    """
-    On landing, grant +1 VP (or a configured amount).
-    """
+    """On landing, grant +1 VP (or a configured amount)."""
 
     amount: int = 1
     priority: int = 5
 
     @property
     @override
-    def name(self) -> str:
+    def display_name(self) -> str:
         return f"VP(+{self.amount})"
 
     @override
     def on_land(
-        self, tile: int, racer_idx: int, phase: int, engine: "GameEngine"
+        self,
+        tile: int,
+        racer_idx: int,
+        phase: int,
+        engine: "GameEngine",
     ) -> None:
         racer = engine.get_racer(racer_idx)
         racer.victory_points += self.amount
@@ -360,9 +392,7 @@ class VictoryPointTile(SpaceModifier, LandingHookMixin):
 
 @dataclass(slots=True)
 class Board:
-    """
-    Manages track topology and spatial modifiers (static and dynamic).
-    """
+    """Manages track topology and spatial modifiers (static and dynamic)."""
 
     length: int
     static_features: dict[int, list["SpaceModifier"]]
@@ -380,20 +410,20 @@ class Board:
         if modifier not in modifiers:
             modifiers.add(modifier)
             logger.info(
-                f"BOARD: Registered {modifier.name} (owner={modifier.owner_idx}) at tile {tile}"
+                f"BOARD: Registered {modifier.name} (owner={modifier.owner_idx}) at tile {tile}",
             )
 
     def unregister_modifier(self, tile: int, modifier: "SpaceModifier") -> None:
         modifiers = self.dynamic_modifiers.get(tile)
         if not modifiers or modifier not in modifiers:
             logger.warning(
-                f"BOARD: Failed to unregister {modifier.name} from {tile} - not found."
+                f"BOARD: Failed to unregister {modifier.name} from {tile} - not found.",
             )
             return
 
         modifiers.remove(modifier)
         logger.info(
-            f"BOARD: Unregistered {modifier.name} (owner={modifier.owner_idx}) from tile {tile}"
+            f"BOARD: Unregistered {modifier.name} (owner={modifier.owner_idx}) from tile {tile}",
         )
 
         if not modifiers:
@@ -460,8 +490,8 @@ class Board:
             mod.on_land(tile, racer_idx, phase, engine)
 
     def dump_state(self):
-        """
-        Logs the location of all dynamic modifiers currently on the board.
+        """Log the location of all dynamic modifiers currently on the board.
+
         Useful for debugging test failures.
         """
         logger.info("=== BOARD STATE DUMP ===")
@@ -481,8 +511,8 @@ class Board:
 
 
 def build_action_lane_board() -> Board:
-    """
-    Example board using all three static tile types.
+    """Build example board using all three static tile types.
+
     - Tile 3: Move forward 2.
     - Tile 6: Move back 2.
     - Tile 9: Trip.
@@ -701,8 +731,8 @@ class PostWarpEvent(GameEvent):
 
 @dataclass(frozen=True)
 class AbilityTriggeredEvent(GameEvent):
-    source_racer_idx: int
-    ability_name: AbilityName
+    source_racer_idx: int | None
+    ability_name: AbilityName | ModifierName | str
     # Human-readable context for logs
     log_context: str
 
@@ -733,8 +763,8 @@ class ScheduledEvent:
 
 
 def ai_should_reroll(ctx: BooleanDecision, board: "Board") -> bool:
-    """
-    Deterministic logic for MagicalReroll.
+    """Deterministic logic for MagicalReroll.
+
     Returns True (Reroll) if:
     1. The roll is very low (<= 2).
     2. The landing spot contains a 'Bad' modifier (Trip or negative MoveDelta).
@@ -770,8 +800,7 @@ def ai_should_reroll(ctx: BooleanDecision, board: "Board") -> bool:
 
 
 def ai_choose_copy_target(ctx: SelectionDecision) -> int:
-    """
-    Deterministic logic for CopyLead.
+    """Deterministic logic for CopyLead.
     Simply picks the first available option.
     Since the options are sorted by racer index before being passed here,
     this is completely deterministic.
@@ -784,9 +813,7 @@ def ai_choose_copy_target(ctx: SelectionDecision) -> int:
 
 
 class SmartAgent(Agent):
-    """
-    A concrete agent that uses deterministic functions to make decisions.
-    """
+    """A concrete agent that uses deterministic functions to make decisions."""
 
     def __init__(self, board: Board):
         # We MUST have the board to make smart lookahead decisions
@@ -812,7 +839,7 @@ class SmartAgent(Agent):
 # ------------------------------
 
 
-AbilityCallback = Callable[[Any, int, "GameEngine"], None]
+AbilityCallback = Callable[[GameEvent, int, "GameEngine"], None]
 
 
 @dataclass
@@ -832,13 +859,12 @@ class GameEngine:
     logging_enabled: bool = True
     log_context: LogContext = field(default_factory=LogContext)
 
-    _serial: int = 0
+    serial: int = 0
     race_over: bool = False
     history: set[tuple[int, int]] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         """Assigns starting abilities to all racers and fires on_gain hooks."""
-
         # Setup logging with this engine instance
         if self.logging_enabled:
             rich_handler = RichHandler(markup=True, show_path=False, show_time=False)
@@ -884,7 +910,10 @@ class GameEngine:
                 logger.info(f"ENGINE: Removed {modifier.name} from {racer.repr}")
 
     def subscribe(
-        self, event_type: type[GameEvent], callback: AbilityCallback, owner_idx: int
+        self,
+        event_type: type[GameEvent],
+        callback: AbilityCallback,
+        owner_idx: int,
     ):
         if event_type not in self.subscribers:
             self.subscribers[event_type] = []
@@ -921,8 +950,6 @@ class GameEngine:
             ability_cls = ABILITY_CLASSES.get(name)
             if ability_cls:
                 instance = ability_cls()
-                if hasattr(instance, "owner_idx"):
-                    instance.owner_idx = racer_idx
 
                 instance.register(self, racer_idx)
                 current_instances[name] = instance
@@ -939,8 +966,8 @@ class GameEngine:
     # --- Action Queuing ---
 
     def push_event(self, event: GameEvent, *, phase: int):
-        self._serial += 1
-        sched = ScheduledEvent(phase, 0, self._serial, event)
+        self.serial += 1
+        sched = ScheduledEvent(phase, 0, self.serial, event)
         heapq.heappush(self.queue, sched)
 
         # --- In GameEngine Class ---
@@ -958,7 +985,10 @@ class GameEngine:
         self.push_event(WarpCmdEvent(racer_idx, target, source, phase), phase=phase)
 
     def emit_ability_trigger(
-        self, source_idx: int, ability: AbilityName, log_context: str
+        self,
+        source_idx: int | None,
+        ability: AbilityName | ModifierName | str,
+        log_context: str,
     ):
         self.push_event(
             AbilityTriggeredEvent(source_idx, ability, log_context),
@@ -966,11 +996,9 @@ class GameEngine:
         )
 
     def trigger_reroll(self, source_idx: int, reason: str):
-        """
-        Cancels the current roll resolution and schedules a new roll immediately.
-        """
+        """Cancels the current roll resolution and schedules a new roll immediately."""
         logger.info(
-            f"!!! RE-ROLL TRIGGERED by {self.get_racer(source_idx).name} ({reason}) !!!"
+            f"!!! RE-ROLL TRIGGERED by {self.get_racer(source_idx).name} ({reason}) !!!",
         )
         # Increment serial to kill any pending ResolveMainMove events
         self.state.roll_state.serial_id += 1
@@ -980,7 +1008,8 @@ class GameEngine:
         # act of triggering the reroll (e.g. Scoocher moving) are processed
         # BEFORE the dice are rolled again.
         self.push_event(
-            PerformRollEvent(self.state.current_racer_idx), phase=Phase.REACTION + 1
+            PerformRollEvent(self.state.current_racer_idx),
+            phase=Phase.REACTION + 1,
         )
 
     # --- Event Loop ---
@@ -1061,7 +1090,7 @@ class GameEngine:
             case _:
                 pass
 
-    def _handle_perform_roll(self, event: PerformRollEvent):
+    def _handle_perform_roll(self, event: PerformRollEvent) -> None:
         self.state.roll_state.serial_id += 1
         current_serial = self.state.roll_state.serial_id
 
@@ -1083,7 +1112,7 @@ class GameEngine:
             mods_str = ", ".join(parts)
             total_delta = sum(delta for _, delta in query.modifier_sources)
             logger.info(
-                f"Dice Roll: {base} (Mods: {total_delta} [{mods_str}]) -> Result: {final}"
+                f"Dice Roll: {base} (Mods: {total_delta} [{mods_str}]) -> Result: {final}",
             )
         else:
             logger.info(f"Dice Roll: {base} (Mods: 0) -> Result: {final}")
@@ -1097,7 +1126,8 @@ class GameEngine:
         # 4. Schedule the resolution. If trigger_reroll() was called in step 3,
         # serial_id will increment, and this event will be ignored in _resolve_main_move.
         self.push_event(
-            ResolveMainMoveEvent(event.racer_idx, current_serial), phase=Phase.MAIN_ACT
+            ResolveMainMoveEvent(event.racer_idx, current_serial),
+            phase=Phase.MAIN_ACT,
         )
 
     def _resolve_main_move(self, event: ResolveMainMoveEvent):
@@ -1130,13 +1160,15 @@ class GameEngine:
                 distance=distance,
                 source=evt.source,
                 phase=evt.phase,
-            )
+            ),
         )
 
         # 2. Resolve spatial modifiers (Huge Baby etc.)
         intended = start + distance
         end = self.state.board.resolve_position(
-            intended, evt.racer_idx, self
+            intended,
+            evt.racer_idx,
+            self,
         )  # [file:1]
 
         # If you get fully blocked back to your start, treat as “no movement”
@@ -1178,7 +1210,7 @@ class GameEngine:
                 end_tile=end,
                 source=evt.source,
                 phase=evt.phase,
-            )
+            ),
         )
 
     def _handle_warp_cmd(self, evt: WarpCmdEvent):
@@ -1200,12 +1232,14 @@ class GameEngine:
                 target_tile=evt.target_tile,
                 source=evt.source,
                 phase=evt.phase,
-            )
+            ),
         )
 
         # 2. Resolve spatial modifiers on the target
         resolved = self.state.board.resolve_position(
-            evt.target_tile, evt.racer_idx, self
+            evt.target_tile,
+            evt.racer_idx,
+            self,
         )  # [file:1]
 
         if resolved == start:
@@ -1219,7 +1253,10 @@ class GameEngine:
 
         # 3. Board hooks on landing
         self.state.board.trigger_on_land(
-            resolved, racer.idx, evt.phase, self
+            resolved,
+            racer.idx,
+            evt.phase,
+            self,
         )  # [file:1]
 
         # 4. Arrival hook
@@ -1230,7 +1267,7 @@ class GameEngine:
                 end_tile=resolved,
                 source=evt.source,
                 phase=evt.phase,
-            )
+            ),
         )
 
     def _check_finish(self, racer: RacerState) -> bool:
@@ -1282,7 +1319,7 @@ class GameEngine:
             else:
                 status = "Eliminated"
             logger.info(
-                f"Result: {racer.repr} pos={racer.position} vp={racer.victory_points} {status}"
+                f"Result: {racer.repr} pos={racer.position} vp={racer.victory_points} {status}",
             )
 
     def advance_turn(self):
@@ -1301,8 +1338,7 @@ class GameEngine:
 
     # simulation
     def simulate_turn_for(self, racer_idx: int) -> TurnOutcome:
-        """
-        Public helper: deep-copy current state into a SandboxEngine
+        """Public helper: deep-copy current state into a SandboxEngine
         and simulate one turn for `racer_idx`.
         """
         sandbox = SandboxEngine.from_engine(self)
@@ -1315,18 +1351,12 @@ class GameEngine:
 
 
 class Ability(ABC):
-    """
-    Base class for all racer abilities.
+    """Base class for all racer abilities.
     Enforces a unique name and handles automatic event emission upon execution.
     """
 
+    name: ClassVar[AbilityName]
     triggers: tuple[type[GameEvent], ...] = ()
-
-    @property
-    @abstractmethod
-    def name(self) -> AbilityName:
-        """The unique name of the ability (e.g. 'Trample', 'ScoochStep')."""
-        raise NotImplementedError
 
     def register(self, engine: "GameEngine", owner_idx: int):
         """Subscribes this ability to the engine events defined in `triggers`."""
@@ -1334,8 +1364,7 @@ class Ability(ABC):
             engine.subscribe(event_type, self._wrapped_handler, owner_idx)
 
     def _wrapped_handler(self, event: GameEvent, owner_idx: int, engine: "GameEngine"):
-        """
-        The internal handler that wraps the user logic.
+        """The internal handler that wraps the user logic.
         It checks liveness, executes logic, and automatically emits the trigger event.
         """
         # 1. Dead racers tell no tales (usually)
@@ -1351,10 +1380,10 @@ class Ability(ABC):
             engine.emit_ability_trigger(owner_idx, self.name, ctx)
 
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
-        """
-        Core logic. Returns True if the ability actually fired/affected game state,
+        """Core logic. Returns True if the ability actually fired/affected game state,
         False if conditions weren't met (e.g. wrong target).
         """
+        _ = event, owner_idx, engine
         return False
 
 
@@ -1374,7 +1403,7 @@ class LifecycleManagedMixin(ABC):
 
 
 class AbilityTrample(Ability):
-    name = "Trample"
+    name: ClassVar[AbilityName] = "Trample"
     triggers: tuple[type[GameEvent]] = (PassingEvent,)
 
     @override
@@ -1396,7 +1425,7 @@ class AbilityTrample(Ability):
 
 
 class AbilityBananaTrip(Ability):
-    name = "BananaTrip"
+    name: ClassVar[AbilityName] = "BananaTrip"
     triggers: tuple[type[GameEvent]] = (PassingEvent,)
 
     @override
@@ -1419,12 +1448,11 @@ class AbilityBananaTrip(Ability):
 
 @dataclass(eq=False)
 class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
-    """
-    The physical manifestation of the Huge Baby on the board.
+    """The physical manifestation of the Huge Baby on the board.
     Blocks others from entering the tile by redirecting them backward.
     """
 
-    name: str = "HugeBabyBlocker"
+    name: ClassVar[AbilityName | str] = "HugeBabyBlocker"
     priority: int = 10
 
     @override
@@ -1439,7 +1467,7 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
 
 
 class HugeBabyPush(Ability, LifecycleManagedMixin):
-    name: AbilityName = "HugeBabyPush"
+    name: ClassVar[AbilityName] = "HugeBabyPush"
     triggers: tuple[type[GameEvent], ...] = (
         PreMoveEvent,
         PreWarpEvent,
@@ -1470,8 +1498,6 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
     # --- REWRITTEN: The core logic is now split into clear phases ---
     @override
     def execute(self, event: GameEvent, owner_idx: int, engine: "GameEngine") -> bool:
-        me = engine.get_racer(owner_idx)
-
         # --- DEPARTURE LOGIC: Triggered BEFORE the move happens ---
         if isinstance(event, (PreMoveEvent, PreWarpEvent)):
             if event.racer_idx != owner_idx:
@@ -1526,7 +1552,7 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
 
 
 class AbilityScoochStep(Ability):
-    name = "ScoochStep"
+    name: ClassVar[AbilityName] = "ScoochStep"
     triggers: tuple[type[GameEvent], ...] = (AbilityTriggeredEvent,)
 
     @override
@@ -1538,8 +1564,12 @@ class AbilityScoochStep(Ability):
         if event.source_racer_idx == owner_idx:
             return False
 
+        if event.source_racer_idx is None:
+            _ = assert_never
+            raise ValueError("AbilityTriggeredEvent should always have a source racer.")
+
         # Logging context
-        source_racer = engine.get_racer(event.source_racer_idx)
+        source_racer: RacerState = engine.get_racer(event.source_racer_idx)
         cause_msg = f"Saw {source_racer.name} use {event.ability_name}"
 
         logger.info(f"{self.name}: {cause_msg} -> Moving 1")
@@ -1555,7 +1585,7 @@ class AbilityScoochStep(Ability):
 
 
 class AbilityPartyPull(Ability):
-    name = "PartyPull"
+    name: ClassVar[AbilityName] = "PartyPull"
     triggers: tuple[type[GameEvent], ...] = (TurnStartEvent,)
 
     @override
@@ -1593,7 +1623,7 @@ class AbilityPartyPull(Ability):
 
 
 class AbilityMagicalReroll(Ability):
-    name = "MagicalReroll"
+    name: ClassVar[AbilityName] = "MagicalReroll"
     triggers: tuple[type[GameEvent], ...] = (RollModificationWindowEvent,)
 
     @override
@@ -1622,7 +1652,9 @@ class AbilityMagicalReroll(Ability):
         if should_reroll:
             me.reroll_count += 1
             engine.emit_ability_trigger(
-                owner_idx, self.name, f"Disliked roll of {event.current_roll_val}"
+                owner_idx,
+                self.name,
+                f"Disliked roll of {event.current_roll_val}",
             )
             engine.trigger_reroll(owner_idx, "MagicalReroll")
             # Return False to prevent generic emission, as we handled it via emit_ability_trigger
@@ -1632,7 +1664,7 @@ class AbilityMagicalReroll(Ability):
 
 
 class AbilityCopyLead(Ability):
-    name: AbilityName = "CopyLead"
+    name: ClassVar[AbilityName] = "CopyLead"
     triggers: tuple[type[GameEvent], ...] = (
         TurnStartEvent,
         PostMoveEvent,
@@ -1685,33 +1717,37 @@ class AbilityCopyLead(Ability):
 
 @dataclass(eq=False)
 class ModifierSlime(RacerModifier, RollModificationMixin):
-    """
-    Applied TO a victim racer. Reduces their roll by 1.
+    """Applied TO a victim racer. Reduces their roll by 1.
     Owned by Gunk.
     """
 
-    name: str = "Slime"
+    name: ClassVar[AbilityName | str] = "Slime"
 
     @override
     def modify_roll(
-        self, query: MoveDistanceQuery, owner_idx: int, engine: "GameEngine"
+        self,
+        query: MoveDistanceQuery,
+        owner_idx: int | None,
+        engine: "GameEngine",
     ) -> None:
         # This modifier is attached to the VICTIM, and affects their roll
         # owner_idx is Gunk, query.racer_idx is the victim
         query.modifiers.append(-1)
         query.modifier_sources.append((self.name, -1))
         engine.emit_ability_trigger(
-            owner_idx, self.name, f"Sliming {engine.get_racer(query.racer_idx).name}"
+            owner_idx,
+            self.name,
+            f"Sliming {engine.get_racer(query.racer_idx).name}",
         )
 
 
 class AbilitySlime(Ability, LifecycleManagedMixin):
-    name = "Slime"
+    name: ClassVar[AbilityName] = "Slime"
     triggers: tuple[type[GameEvent], ...] = ()
 
     @override
     @staticmethod
-    def on_gain(engine: GameEngine, owner_idx: int):
+    def on_gain(engine: GameEngine, owner_idx: int) -> None:
         # Apply debuff to ALL other active racers
         for r in engine.state.racers:
             if r.idx != owner_idx and not r.finished:
@@ -1719,7 +1755,7 @@ class AbilitySlime(Ability, LifecycleManagedMixin):
 
     @override
     @staticmethod
-    def on_loss(engine: GameEngine, owner_idx: int):
+    def on_loss(engine: GameEngine, owner_idx: int) -> None:
         # Clean up debuff from everyone
         for r in engine.state.racers:
             engine.remove_racer_modifier(r.idx, ModifierSlime(owner_idx=owner_idx))
@@ -1727,20 +1763,25 @@ class AbilitySlime(Ability, LifecycleManagedMixin):
 
 @dataclass(eq=False)
 class ModifierPartySelfBoost(RacerModifier, RollModificationMixin):
-    """
-    Applied TO Party Animal. Boosts their own roll based on neighbors.
-    """
+    """Applied TO Party Animal. Boosts their own roll based on neighbors."""
 
-    name: str = "PartySelfBoost"
+    name: ClassVar[AbilityName | str] = "PartySelfBoost"
 
     @override
     def modify_roll(
-        self, query: MoveDistanceQuery, owner_idx: int, engine: "GameEngine"
+        self,
+        query: MoveDistanceQuery,
+        owner_idx: int | None,
+        engine: "GameEngine",
     ) -> None:
         # This modifier is attached to Party Animal, affects their own roll
         # owner_idx is Party Animal, query.racer_idx is also Party Animal
         if query.racer_idx != owner_idx:
             return  # Safety check (should never happen)
+
+        if owner_idx is None:
+            _ = assert_never
+            raise ValueError("owner_idx should never be None")
 
         owner = engine.get_racer(owner_idx)
         guests = [
@@ -1753,12 +1794,14 @@ class ModifierPartySelfBoost(RacerModifier, RollModificationMixin):
             query.modifiers.append(bonus)
             query.modifier_sources.append((self.name, bonus))
             engine.emit_ability_trigger(
-                owner_idx, self.name, f"Boosted by {bonus} guests"
+                owner_idx,
+                self.name,
+                f"Boosted by {bonus} guests",
             )
 
 
 class AbilityPartyBoost(Ability, LifecycleManagedMixin):
-    name = "PartyBoost"
+    name: ClassVar[AbilityName] = "PartyBoost"
     triggers: tuple[type[GameEvent], ...] = ()
 
     @override
@@ -1766,14 +1809,16 @@ class AbilityPartyBoost(Ability, LifecycleManagedMixin):
     def on_gain(engine: GameEngine, owner_idx: int):
         # Apply the "Check for Neighbors" modifier to MYSELF
         engine.add_racer_modifier(
-            owner_idx, ModifierPartySelfBoost(owner_idx=owner_idx)
+            owner_idx,
+            ModifierPartySelfBoost(owner_idx=owner_idx),
         )
 
     @override
     @staticmethod
     def on_loss(engine: GameEngine, owner_idx: int):
         engine.remove_racer_modifier(
-            owner_idx, ModifierPartySelfBoost(owner_idx=owner_idx)
+            owner_idx,
+            ModifierPartySelfBoost(owner_idx=owner_idx),
         )
 
 
@@ -1784,7 +1829,7 @@ class AbilityPartyBoost(Ability, LifecycleManagedMixin):
 
 class SandboxEngine:
     def __init__(self, engine: "GameEngine"):
-        self.engine = engine
+        self.engine: GameEngine = engine
 
     @classmethod
     def from_engine(cls, src: "GameEngine") -> "SandboxEngine":
@@ -1800,7 +1845,7 @@ class SandboxEngine:
         eng.queue = queue_copy
 
         # Make sure serial is safe if sandbox pushes new events
-        eng._serial = max((se.serial for se in eng.queue), default=eng._serial)
+        eng.serial = max((se.serial for se in eng.queue), default=eng.serial)
 
         # Re-register abilities to rebuild subscribers (no separate subscriber logic needed)
         cls._rebuild_subscribers_via_update_abilities(eng)
@@ -1825,12 +1870,10 @@ class SandboxEngine:
             eng.update_racer_abilities(idx, current_names)
 
     def run_turn_for(self, racer_idx: int) -> TurnOutcome:
-        """
-        Simulate exactly one turn for `racer_idx` inside this sandbox.
+        """Simulate exactly one turn for `racer_idx` inside this sandbox.
         - Does not mutate the real game (sandbox owns a copied state/queue).
         - Returns a TurnOutcome with per-racer deltas/snapshots.
         """
-
         eng = self.engine
 
         # Ensure we're simulating the intended racer
@@ -1840,7 +1883,7 @@ class SandboxEngine:
         before_vp = [r.victory_points for r in eng.state.racers]
         before_pos = [r.position for r in eng.state.racers]
 
-        # Run exactly one turn using the engine’s normal logic
+        # Run exactly one turn using the engine's normal logic
         eng.run_turn()
 
         # Snapshot AFTER
@@ -1851,7 +1894,7 @@ class SandboxEngine:
         # If you track eliminated explicitly, keep it; otherwise default to False.
         eliminated = [getattr(r, "eliminated", False) for r in eng.state.racers]
 
-        vp_delta = [a - b for a, b in zip(after_vp, before_vp)]
+        vp_delta = [a - b for a, b in zip(after_vp, before_vp, strict=False)]
 
         return TurnOutcome(
             vp_delta=vp_delta,
@@ -1870,7 +1913,7 @@ class SandboxEngine:
 ABILITY_CLASSES: dict[AbilityName, type[Ability]] = {
     cls.name: cls for cls in Ability.__subclasses__()
 }
-MODIFIER_CLASSES: dict[AbilityName, type[Modifier]] = {
+MODIFIER_CLASSES: dict[AbilityName | str, type[Modifier]] = {
     cls.name: cls for cls in Modifier.__subclasses__()
 }
 

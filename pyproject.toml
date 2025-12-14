@@ -4,11 +4,14 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13.5"
-dependencies = [
-    "rich>=14.2.0",
-]
+dependencies = ["rich>=14.2.0"]
 
 [dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-]
+dev = ["pytest>=9.0.2"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["D", "ANN", "PLR", "E501", "G004", "TRY003", "EM101", "S311"]
+
+[tool.ruff]
+exclude = ["tests"]

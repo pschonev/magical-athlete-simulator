@@ -82,7 +82,7 @@ def test_huge_baby_victim_lands_on_baby(scenario: type[GameScenario]):
 
     game.run_turn()
 
-    assert game.get_racer(0).position == 4, game.engine.board.dump_state()
+    assert game.get_racer(0).position == 4, game.engine.state.board.dump_state()
     assert game.get_racer(1).position == 5
 
 
