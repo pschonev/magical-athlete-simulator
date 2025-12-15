@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from unittest.mock import MagicMock
-from magical_athlete_simulator.game import (
+from magical_athlete_simulator.run_game import (
     GameEngine,
     GameState,
     RacerName,
