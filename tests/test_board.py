@@ -1,5 +1,6 @@
+from magical_athlete_simulator.engine.board import TripTile
 from tests.test_utils import GameScenario, RacerConfig
-from magical_athlete_simulator.run_game import TripTile
+
 
 
 def test_redirect_into_trap(scenario: type[GameScenario]):

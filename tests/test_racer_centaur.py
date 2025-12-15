@@ -1,5 +1,6 @@
+from magical_athlete_simulator.core.events import MoveCmdEvent, WarpCmdEvent
+from magical_athlete_simulator.core.types import Phase
 from tests.test_utils import GameScenario, RacerConfig
-from magical_athlete_simulator.run_game import MoveCmdEvent, WarpCmdEvent, Phase
 
 
 def test_centaur_tramples_multiple_victims(scenario: type[GameScenario]):

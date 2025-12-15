@@ -1,13 +1,12 @@
 from dataclasses import dataclass
 from unittest.mock import MagicMock
-from magical_athlete_simulator.run_game import (
-    GameEngine,
-    GameState,
-    RacerName,
-    RacerState,
-    AbilityName,
-    RACER_ABILITIES,
-)
+
+from magical_athlete_simulator.core.protocols import GameState, RacerState
+from magical_athlete_simulator.core.registry import RACER_ABILITIES
+from magical_athlete_simulator.core.types import AbilityName, RacerName
+from magical_athlete_simulator.engine.board import BOARD_DEFINITIONS
+from magical_athlete_simulator.engine.game_engine import GameEngine
+
 
 
 @dataclass
@@ -57,8 +56,8 @@ class GameScenario:
         self.mock_rng: MagicMock = MagicMock()
 
         # 3. Initialize Engine
-        self.state: GameState = GameState(racers)
-        self.engine: GameEngineLike = GameEngine(self.state, self.mock_rng)
+        self.state: GameState = GameState(racers, board=BOARD_DEFINITIONS["standard"]())
+        self.engine: GameEngine = GameEngine(self.state, self.mock_rng)
 
         if dice_rolls:
             self.set_dice_rolls(dice_rolls)

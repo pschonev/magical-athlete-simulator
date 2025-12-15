@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, override
 
+from magical_athlete_simulator.core import LOGGER_NAME
 from magical_athlete_simulator.core.protocols import (
     ApproachHookMixin,
     GameEngineLike,
@@ -15,7 +16,7 @@ from magical_athlete_simulator.core.types import AbilityName, Phase
 if TYPE_CHECKING:
     from magical_athlete_simulator.core.protocols import RacerState
 
-logger = logging.getLogger("magical_athlete")
+logger = logging.getLogger(LOGGER_NAME)
 
 
 @dataclass(slots=True)

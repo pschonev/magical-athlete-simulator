@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from rich.logging import RichHandler
 
 from magical_athlete_simulator.ai.smart_agent import SmartAgent
+from magical_athlete_simulator.core import LOGGER_NAME
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
     GameEvent,
@@ -36,14 +37,15 @@ from magical_athlete_simulator.core.protocols import (
     RollModificationMixin,
     TurnOutcome,
 )
-from magical_athlete_simulator.core.registry import ABILITY_CLASSES, RACER_ABILITIES
+from magical_athlete_simulator.core.registry import RACER_ABILITIES
 from magical_athlete_simulator.core.types import AbilityName, ModifierName, Phase
 from magical_athlete_simulator.engine.logging import (
     ContextFilter,
     RichMarkupFormatter,
 )
+from magical_athlete_simulator.racers import ABILITY_CLASSES
 
-logger = logging.getLogger("magical_athlete")
+logger = logging.getLogger(LOGGER_NAME)
 
 
 @dataclass

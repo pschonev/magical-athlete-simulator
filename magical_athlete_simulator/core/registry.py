@@ -1,13 +1,4 @@
-# Build these automatically at module load
-from magical_athlete_simulator.core.protocols import Ability, Modifier
 from magical_athlete_simulator.core.types import AbilityName, RacerName
-
-ABILITY_CLASSES: dict[AbilityName, type[Ability]] = {
-    cls.name: cls for cls in Ability.__subclasses__()
-}
-MODIFIER_CLASSES: dict[AbilityName | str, type[Modifier]] = {
-    cls.name: cls for cls in Modifier.__subclasses__()
-}
 
 RACER_ABILITIES: dict[RacerName, set[AbilityName]] = {
     "Centaur": {"Trample"},

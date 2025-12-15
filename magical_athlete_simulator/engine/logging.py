@@ -49,9 +49,9 @@ class ContextFilter(logging.Filter):
 
 @dataclass
 class ContextLogRecord(logging.LogRecord):
-    totalturn: int
-    turnlogcount: int
-    racerrepr: str
+    total_turn: int
+    turn_log_count: int
+    racer_repr: str
 
 
 class RichMarkupFormatter(logging.Formatter):
@@ -59,7 +59,7 @@ class RichMarkupFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         r = record  # keep runtime object
         cr = cast("ContextLogRecord", r)
-        prefix = f"{cr.totalturn}.{cr.racerrepr}.{cr.turnlogcount}"
+        prefix = f"{cr.total_turn}.{cr.racer_repr}.{cr.turn_log_count}"
 
         message = record.getMessage()
 
