@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import copy
 import heapq
 import logging
-import random
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from rich.logging import RichHandler
 
@@ -27,13 +29,8 @@ from magical_athlete_simulator.core.events import (
     WarpCmdEvent,
 )
 from magical_athlete_simulator.core.protocols import (
-    AbilityCallback,
-    Agent,
-    GameState,
     LifecycleManagedMixin,
     LogContext,
-    RacerModifier,
-    RacerState,
     RollModificationMixin,
     TurnOutcome,
 )
@@ -43,7 +40,18 @@ from magical_athlete_simulator.engine.logging import (
     ContextFilter,
     RichMarkupFormatter,
 )
-from magical_athlete_simulator.racers import ABILITY_CLASSES
+from magical_athlete_simulator.racers import get_ability_classes
+
+if TYPE_CHECKING:
+    import random
+
+    from magical_athlete_simulator.core.protocols import (
+        AbilityCallback,
+        Agent,
+        GameState,
+        RacerModifier,
+        RacerState,
+    )
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -58,12 +66,12 @@ class Subscriber:
 class GameEngine:
     state: GameState
     rng: random.Random
+    log_context: LogContext
     queue: list[ScheduledEvent] = field(default_factory=list)
     subscribers: dict[type[GameEvent], list[Subscriber]] = field(default_factory=dict)
     agents: dict[int, Agent] = field(default_factory=dict)
 
     logging_enabled: bool = True
-    log_context: LogContext = field(default_factory=LogContext)
 
     serial: int = 0
     race_over: bool = False
@@ -153,7 +161,7 @@ class GameEngine:
 
         # 2. Handle Added
         for name in added:
-            ability_cls = ABILITY_CLASSES.get(name)
+            ability_cls = get_ability_classes().get(name)
             if ability_cls:
                 instance = ability_cls()
 
@@ -556,7 +564,7 @@ class SandboxEngine:
         self.engine: GameEngine = engine
 
     @classmethod
-    def from_engine(cls, src: GameEngine) -> "SandboxEngine":
+    def from_engine(cls, src: GameEngine) -> SandboxEngine:
         state_copy = copy.deepcopy(src.state)
         queue_copy = copy.deepcopy(src.queue)
 
@@ -565,6 +573,7 @@ class SandboxEngine:
             rng=src.rng,
             agents=src.agents,  # keep original agents
             logging_enabled=False,
+            log_context=LogContext(),
         )
         eng.queue = queue_copy
 

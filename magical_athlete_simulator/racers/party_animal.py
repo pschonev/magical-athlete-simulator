@@ -10,12 +10,12 @@ from magical_athlete_simulator.core.events import (
 )
 from magical_athlete_simulator.core.protocols import (
     Ability,
-    GameEngineLike,
     LifecycleManagedMixin,
     RacerModifier,
     RollModificationMixin,
 )
 from magical_athlete_simulator.core.types import AbilityName, Phase
+from magical_athlete_simulator.engine.game_engine import GameEngine
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -25,7 +25,7 @@ class AbilityPartyPull(Ability):
     triggers: tuple[type[GameEvent], ...] = (TurnStartEvent,)
 
     @override
-    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngineLike) -> bool:
+    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine) -> bool:
         if not isinstance(event, TurnStartEvent):
             return False
 
@@ -69,7 +69,7 @@ class ModifierPartySelfBoost(RacerModifier, RollModificationMixin):
         self,
         query: MoveDistanceQuery,
         owner_idx: int | None,
-        engine: GameEngineLike,
+        engine: GameEngine,
     ) -> None:
         # This modifier is attached to Party Animal, affects their own roll
         # owner_idx is Party Animal, query.racer_idx is also Party Animal
@@ -103,7 +103,7 @@ class AbilityPartyBoost(Ability, LifecycleManagedMixin):
 
     @override
     @staticmethod
-    def on_gain(engine: GameEngineLike, owner_idx: int):
+    def on_gain(engine: GameEngine, owner_idx: int):
         # Apply the "Check for Neighbors" modifier to MYSELF
         engine.add_racer_modifier(
             owner_idx,
@@ -112,7 +112,7 @@ class AbilityPartyBoost(Ability, LifecycleManagedMixin):
 
     @override
     @staticmethod
-    def on_loss(engine: GameEngineLike, owner_idx: int):
+    def on_loss(engine: GameEngine, owner_idx: int):
         engine.remove_racer_modifier(
             owner_idx,
             ModifierPartySelfBoost(owner_idx=owner_idx),

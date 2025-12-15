@@ -1,115 +1,45 @@
-import random
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import ClassVar, Protocol, override
+from typing import TYPE_CHECKING, ClassVar, Protocol, override
 
 from magical_athlete_simulator.core.events import GameEvent, MoveDistanceQuery
-from magical_athlete_simulator.core.types import AbilityName, ModifierName, RacerName
 
-AbilityCallback = Callable[[GameEvent, int, "GameEngineLike"], None]
+if TYPE_CHECKING:
+    from collections import defaultdict
 
+    from magical_athlete_simulator.core.types import AbilityName, RacerName
+    from magical_athlete_simulator.engine.game_engine import GameEngine
 
-class GameEngineLike(Protocol):
-    """
-    Defines the public interface of the GameEngine that core modules
-    like Abilities and Modifiers can depend on.
-    """
-
-    # --- Attributes ---
-    # Core modules need to read the game state.
-    state: "GameState"
-    rng: random.Random
-    log_context: "LogContext"
-
-    # --- Methods for Information ---
-    def get_racer(self, idx: int) -> "RacerState": ...
-
-    def get_racer_pos(self, idx: int) -> int: ...
-
-    def get_agent(self, racer_idx: int) -> "Agent": ...
-
-    # --- Methods for Modifying State / Queueing Actions ---
-    def add_racer_modifier(
-        self,
-        target_idx: int,
-        modifier: "RacerModifier",
-    ) -> None: ...
-
-    def remove_racer_modifier(
-        self,
-        target_idx: int,
-        modifier: "RacerModifier",
-    ) -> None: ...
-
-    def update_racer_abilities(
-        self,
-        racer_idx: int,
-        new_abilities: set[AbilityName],
-    ) -> None: ...
-
-    def push_move(
-        self,
-        racer_idx: int,
-        distance: int,
-        source: str,
-        phase: int,
-    ) -> None: ...
-
-    def push_warp(
-        self,
-        racer_idx: int,
-        target: int,
-        source: str,
-        phase: int,
-    ) -> None: ...
-
-    def trigger_reroll(self, source_idx: int, reason: str) -> None: ...
-
-    # --- Methods for Event Handling ---
-    def subscribe(
-        self,
-        event_type: type[GameEvent],
-        callback: AbilityCallback,
-        owner_idx: int,
-    ) -> None: ...
-
-    def emit_ability_trigger(
-        self,
-        source_idx: int | None,
-        ability: AbilityName | ModifierName | str,
-        log_context: str,
-    ) -> None: ...
-
-    # --- Methods for Simulation ---
-    def simulate_turn_for(self, racer_idx: int) -> "TurnOutcome": ...
+AbilityCallback = Callable[[GameEvent, int, "GameEngine"], None]
 
 
 class BoardLike(Protocol):
     # --- Data shape ---
     length: int
-    static_features: dict[int, list["SpaceModifier"]]
-    dynamic_modifiers: defaultdict[int, set["SpaceModifier"]]
+    static_features: dict[int, list[SpaceModifier]]
+    dynamic_modifiers: defaultdict[int, set[SpaceModifier]]
 
     @property
     def finish_space(self) -> int:  # mirrors your property
         ...
 
     # --- Modifier access ---
-    def register_modifier(self, tile: int, modifier: "SpaceModifier") -> None: ...
+    def register_modifier(self, tile: int, modifier: SpaceModifier) -> None: ...
 
-    def unregister_modifier(self, tile: int, modifier: "SpaceModifier") -> None: ...
+    def unregister_modifier(self, tile: int, modifier: SpaceModifier) -> None: ...
 
-    def get_modifiers_at(self, tile: int) -> list["SpaceModifier"]: ...
+    def get_modifiers_at(self, tile: int) -> list[SpaceModifier]: ...
 
     # --- Engine interaction hooks ---
     def resolve_position(
         self,
         target: int,
         mover_idx: int,
-        engine: GameEngineLike,
+        engine: GameEngine,
     ) -> int: ...
 
     def trigger_on_land(
@@ -117,7 +47,7 @@ class BoardLike(Protocol):
         tile: int,
         racer_idx: int,
         phase: int,
-        engine: GameEngineLike,
+        engine: GameEngine,
     ) -> None: ...
 
     # --- Debug helpers (optional but cheap to include) ---
@@ -137,7 +67,7 @@ class RollModificationMixin(ABC):
         self,
         query: MoveDistanceQuery,
         owner_idx: int | None,
-        engine: GameEngineLike,
+        engine: GameEngine,
     ) -> None:
         pass
 
@@ -146,7 +76,7 @@ class ApproachHookMixin(ABC):
     """Allows a modifier to redirect incoming racers (e.g., Huge Baby blocking)."""
 
     @abstractmethod
-    def on_approach(self, target: int, mover_idx: int, engine: GameEngineLike) -> int:
+    def on_approach(self, target: int, mover_idx: int, engine: GameEngine) -> int:
         pass
 
 
@@ -159,7 +89,7 @@ class LandingHookMixin(ABC):
         tile: int,
         racer_idx: int,
         phase: int,
-        engine: GameEngineLike,
+        engine: GameEngine,
     ) -> None:
         pass
 
@@ -217,7 +147,7 @@ class Ability(ABC):
     name: ClassVar[AbilityName]
     triggers: tuple[type[GameEvent], ...] = ()
 
-    def register(self, engine: GameEngineLike, owner_idx: int):
+    def register(self, engine: GameEngine, owner_idx: int):
         """Subscribes this ability to the engine events defined in `triggers`."""
         for event_type in self.triggers:
             engine.subscribe(event_type, self._wrapped_handler, owner_idx)
@@ -226,7 +156,7 @@ class Ability(ABC):
         self,
         event: GameEvent,
         owner_idx: int,
-        engine: GameEngineLike,
+        engine: GameEngine,
     ):
         """The internal handler that wraps the user logic.
         It checks liveness, executes logic, and automatically emits the trigger event.
@@ -243,7 +173,7 @@ class Ability(ABC):
             ctx = f"Reacting to {event.__class__.__name__}"
             engine.emit_ability_trigger(owner_idx, self.name, ctx)
 
-    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngineLike) -> bool:
+    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine) -> bool:
         """Core logic. Returns True if the ability actually fired/affected game state,
         False if conditions weren't met (e.g. wrong target).
         """
@@ -254,12 +184,12 @@ class Ability(ABC):
 class LifecycleManagedMixin(ABC):
     @staticmethod
     @abstractmethod
-    def on_gain(engine: GameEngineLike, owner_idx: int) -> None:
+    def on_gain(engine: GameEngine, owner_idx: int) -> None:
         pass
 
     @staticmethod
     @abstractmethod
-    def on_loss(engine: GameEngineLike, owner_idx: int) -> None:
+    def on_loss(engine: GameEngine, owner_idx: int) -> None:
         pass
 
 
@@ -279,7 +209,7 @@ class DecisionReason(Enum):
 class DecisionContext:
     """Base context containing the minimal state needed for a decision."""
 
-    game_state: "GameState"
+    game_state: GameState
     source_racer_idx: int
     reason: DecisionReason
 
@@ -293,7 +223,7 @@ class BooleanDecision(DecisionContext):
 class SelectionDecision(DecisionContext):
     """A generic selection from a list of options."""
 
-    options: list["RacerState"]
+    options: list[RacerState]
 
 
 class Agent(ABC):

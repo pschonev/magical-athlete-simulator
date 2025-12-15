@@ -6,12 +6,12 @@ from magical_athlete_simulator.core import LOGGER_NAME
 from magical_athlete_simulator.core.events import GameEvent, MoveDistanceQuery
 from magical_athlete_simulator.core.protocols import (
     Ability,
-    GameEngineLike,
     LifecycleManagedMixin,
     RacerModifier,
     RollModificationMixin,
 )
 from magical_athlete_simulator.core.types import AbilityName
+from magical_athlete_simulator.engine.game_engine import GameEngine
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -29,7 +29,7 @@ class ModifierSlime(RacerModifier, RollModificationMixin):
         self,
         query: MoveDistanceQuery,
         owner_idx: int | None,
-        engine: GameEngineLike,
+        engine: GameEngine,
     ) -> None:
         # This modifier is attached to the VICTIM, and affects their roll
         # owner_idx is Gunk, query.racer_idx is the victim
@@ -48,7 +48,7 @@ class AbilitySlime(Ability, LifecycleManagedMixin):
 
     @override
     @staticmethod
-    def on_gain(engine: GameEngineLike, owner_idx: int) -> None:
+    def on_gain(engine: GameEngine, owner_idx: int) -> None:
         # Apply debuff to ALL other active racers
         for r in engine.state.racers:
             if r.idx != owner_idx and not r.finished:
@@ -56,7 +56,7 @@ class AbilitySlime(Ability, LifecycleManagedMixin):
 
     @override
     @staticmethod
-    def on_loss(engine: GameEngineLike, owner_idx: int) -> None:
+    def on_loss(engine: GameEngine, owner_idx: int) -> None:
         # Clean up debuff from everyone
         for r in engine.state.racers:
             engine.remove_racer_modifier(r.idx, ModifierSlime(owner_idx=owner_idx))

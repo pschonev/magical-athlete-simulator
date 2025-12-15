@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import logging
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast, get_args, override
 
-from magical_athlete_simulator.core.protocols import GameEngineLike
 from magical_athlete_simulator.core.types import AbilityName, RacerName
 
 if TYPE_CHECKING:
     from magical_athlete_simulator.core.protocols import LogContext
+    from magical_athlete_simulator.engine.game_engine import GameEngine
 
 RACER_NAMES = set(get_args(RacerName))
 ABILITY_NAMES = set(get_args(AbilityName))
@@ -33,9 +35,9 @@ COLOR = {
 class ContextFilter(logging.Filter):
     """Inject per-engine runtime context into every log record."""
 
-    def __init__(self, engine: GameEngineLike, name: str = "") -> None:
+    def __init__(self, engine: GameEngine, name: str = "") -> None:
         super().__init__(name)  # name is for logger-name filtering; keep default
-        self.engine: GameEngineLike = engine  # store the existing engine instance
+        self.engine: GameEngine = engine  # store the existing engine instance
 
     @override
     def filter(self, record: logging.LogRecord) -> bool:

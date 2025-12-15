@@ -13,11 +13,11 @@ from magical_athlete_simulator.core.events import (
 from magical_athlete_simulator.core.protocols import (
     Ability,
     ApproachHookMixin,
-    GameEngineLike,
     LifecycleManagedMixin,
     SpaceModifier,
 )
 from magical_athlete_simulator.core.types import AbilityName
+from magical_athlete_simulator.engine.game_engine import GameEngine
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -32,7 +32,7 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
     priority: int = 10
 
     @override
-    def on_approach(self, target: int, mover_idx: int, engine: GameEngineLike) -> int:
+    def on_approach(self, target: int, mover_idx: int, engine: GameEngine) -> int:
         # Prevent others from entering the tile
         if target == 0:
             return target
@@ -58,7 +58,7 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
     # --- on_gain and on_loss remain unchanged ---
     @override
     @staticmethod
-    def on_gain(engine: GameEngineLike, owner_idx: int):
+    def on_gain(engine: GameEngine, owner_idx: int):
         racer = engine.get_racer(owner_idx)
         if racer.position > 0:
             mod = HugeBabyModifier(owner_idx=owner_idx)
@@ -66,14 +66,14 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
 
     @override
     @staticmethod
-    def on_loss(engine: GameEngineLike, owner_idx: int):
+    def on_loss(engine: GameEngine, owner_idx: int):
         racer = engine.get_racer(owner_idx)
         mod = HugeBabyModifier(owner_idx=owner_idx)
         engine.state.board.unregister_modifier(racer.position, mod)
 
     # --- REWRITTEN: The core logic is now split into clear phases ---
     @override
-    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngineLike) -> bool:
+    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine) -> bool:
         # --- DEPARTURE LOGIC: Triggered BEFORE the move happens ---
         if isinstance(event, (PreMoveEvent, PreWarpEvent)):
             if event.racer_idx != owner_idx:

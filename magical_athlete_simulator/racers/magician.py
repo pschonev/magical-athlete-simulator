@@ -7,9 +7,9 @@ from magical_athlete_simulator.core.protocols import (
     Ability,
     BooleanDecision,
     DecisionReason,
-    GameEngineLike,
 )
 from magical_athlete_simulator.core.types import AbilityName
+from magical_athlete_simulator.engine.game_engine import GameEngine
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -19,7 +19,7 @@ class AbilityMagicalReroll(Ability):
     triggers: tuple[type[GameEvent], ...] = (RollModificationWindowEvent,)
 
     @override
-    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngineLike):
+    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine):
         if not isinstance(event, RollModificationWindowEvent):
             return False
 
