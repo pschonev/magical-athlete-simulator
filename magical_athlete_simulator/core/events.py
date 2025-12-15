@@ -1,8 +1,6 @@
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from magical_athlete_simulator.core.types import AbilityName, ModifierName
-from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
 class GameEvent:
@@ -128,12 +126,3 @@ class ScheduledEvent:
     priority: int
     serial: int
     event: GameEvent = field(compare=False)
-
-
-AbilityCallback = Callable[[GameEvent, int, GameEngine], None]
-
-
-@dataclass
-class Subscriber:
-    callback: AbilityCallback
-    owner_idx: int

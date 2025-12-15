@@ -6,12 +6,8 @@ from dataclasses import dataclass, field
 
 from rich.logging import RichHandler
 
-from magical_athlete_simulator.ai.evaluation import TurnOutcome
 from magical_athlete_simulator.ai.smart_agent import SmartAgent
-from magical_athlete_simulator.core.ability_base import LifecycleManagedMixin
-from magical_athlete_simulator.core.agent_base import Agent
 from magical_athlete_simulator.core.events import (
-    AbilityCallback,
     AbilityTriggeredEvent,
     GameEvent,
     MoveCmdEvent,
@@ -26,24 +22,34 @@ from magical_athlete_simulator.core.events import (
     ResolveMainMoveEvent,
     RollModificationWindowEvent,
     ScheduledEvent,
-    Subscriber,
     TurnStartEvent,
     WarpCmdEvent,
 )
-from magical_athlete_simulator.core.modifier_base import (
+from magical_athlete_simulator.core.protocols import (
+    AbilityCallback,
+    Agent,
+    GameState,
+    LifecycleManagedMixin,
+    LogContext,
     RacerModifier,
+    RacerState,
     RollModificationMixin,
+    TurnOutcome,
 )
 from magical_athlete_simulator.core.registry import ABILITY_CLASSES, RACER_ABILITIES
 from magical_athlete_simulator.core.types import AbilityName, ModifierName, Phase
 from magical_athlete_simulator.engine.logging import (
     ContextFilter,
-    LogContext,
     RichMarkupFormatter,
 )
-from magical_athlete_simulator.engine.state import GameState, RacerState
 
 logger = logging.getLogger("magical_athlete")
+
+
+@dataclass
+class Subscriber:
+    callback: AbilityCallback
+    owner_idx: int
 
 
 @dataclass
@@ -569,7 +575,7 @@ class SandboxEngine:
         return cls(eng)
 
     @staticmethod
-    def _rebuild_subscribers_via_update_abilities(eng: "GameEngine") -> None:
+    def _rebuild_subscribers_via_update_abilities(eng: GameEngine) -> None:
         # Clear whatever was there (fresh engine usually has empty subscribers anyway)
         eng.subscribers.clear()
 

@@ -24,7 +24,7 @@ class AbilityPartyPull(Ability):
     triggers: tuple[type[GameEvent], ...] = (TurnStartEvent,)
 
     @override
-    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine) -> bool:
+    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngineLike) -> bool:
         if not isinstance(event, TurnStartEvent):
             return False
 
@@ -68,7 +68,7 @@ class ModifierPartySelfBoost(RacerModifier, RollModificationMixin):
         self,
         query: MoveDistanceQuery,
         owner_idx: int | None,
-        engine: "GameEngine",
+        engine: GameEngineLike,
     ) -> None:
         # This modifier is attached to Party Animal, affects their own roll
         # owner_idx is Party Animal, query.racer_idx is also Party Animal
@@ -102,7 +102,7 @@ class AbilityPartyBoost(Ability, LifecycleManagedMixin):
 
     @override
     @staticmethod
-    def on_gain(engine: GameEngine, owner_idx: int):
+    def on_gain(engine: GameEngineLike, owner_idx: int):
         # Apply the "Check for Neighbors" modifier to MYSELF
         engine.add_racer_modifier(
             owner_idx,
@@ -111,7 +111,7 @@ class AbilityPartyBoost(Ability, LifecycleManagedMixin):
 
     @override
     @staticmethod
-    def on_loss(engine: GameEngine, owner_idx: int):
+    def on_loss(engine: GameEngineLike, owner_idx: int):
         engine.remove_racer_modifier(
             owner_idx,
             ModifierPartySelfBoost(owner_idx=owner_idx),

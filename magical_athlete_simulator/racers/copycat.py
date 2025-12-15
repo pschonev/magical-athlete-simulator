@@ -25,7 +25,7 @@ class AbilityCopyLead(Ability):
     )
 
     @override
-    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine) -> bool:
+    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngineLike) -> bool:
         if not isinstance(event, (TurnStartEvent, PostWarpEvent, PostMoveEvent)):
             return False
 

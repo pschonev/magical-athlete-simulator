@@ -28,7 +28,7 @@ class ModifierSlime(RacerModifier, RollModificationMixin):
         self,
         query: MoveDistanceQuery,
         owner_idx: int | None,
-        engine: GameEngine,
+        engine: GameEngineLike,
     ) -> None:
         # This modifier is attached to the VICTIM, and affects their roll
         # owner_idx is Gunk, query.racer_idx is the victim
@@ -47,7 +47,7 @@ class AbilitySlime(Ability, LifecycleManagedMixin):
 
     @override
     @staticmethod
-    def on_gain(engine: GameEngine, owner_idx: int) -> None:
+    def on_gain(engine: GameEngineLike, owner_idx: int) -> None:
         # Apply debuff to ALL other active racers
         for r in engine.state.racers:
             if r.idx != owner_idx and not r.finished:
@@ -55,7 +55,7 @@ class AbilitySlime(Ability, LifecycleManagedMixin):
 
     @override
     @staticmethod
-    def on_loss(engine: GameEngine, owner_idx: int) -> None:
+    def on_loss(engine: GameEngineLike, owner_idx: int) -> None:
         # Clean up debuff from everyone
         for r in engine.state.racers:
             engine.remove_racer_modifier(r.idx, ModifierSlime(owner_idx=owner_idx))

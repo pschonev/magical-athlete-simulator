@@ -1,22 +1,22 @@
-from typing import TYPE_CHECKING, override
+from typing import override
 
-from magical_athlete_simulator.core.agent_base import (
+from magical_athlete_simulator.core.protocols import (
     Agent,
+    BoardLike,
     BooleanDecision,
     DecisionReason,
+    GameState,
+    RacerState,
     SelectionDecision,
 )
-from magical_athlete_simulator.engine.board import Board, MoveDeltaTile, TripTile
-
-if TYPE_CHECKING:
-    from magical_athlete_simulator.engine.state import GameState, RacerState
+from magical_athlete_simulator.engine.board import MoveDeltaTile, TripTile
 
 
 class SmartAgent(Agent):
     """A concrete agent that uses deterministic functions to make decisions."""
 
-    def __init__(self, board: Board):
-        self.board: Board = board
+    def __init__(self, board: BoardLike):
+        self.board: BoardLike = board
 
     @override
     def make_boolean_decision(self, ctx: BooleanDecision) -> bool:
@@ -33,7 +33,7 @@ class SmartAgent(Agent):
         return 0
 
 
-def ai_should_reroll(ctx: BooleanDecision, board: Board) -> bool:
+def ai_should_reroll(ctx: BooleanDecision, board: BoardLike) -> bool:
     """Deterministic logic for MagicalReroll.
 
     Returns True (Reroll) if:

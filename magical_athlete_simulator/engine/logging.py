@@ -1,10 +1,13 @@
 import logging
 import re
 from dataclasses import dataclass
-from typing import cast, get_args, override
+from typing import TYPE_CHECKING, cast, get_args, override
 
+from magical_athlete_simulator.core.protocols import GameEngineLike
 from magical_athlete_simulator.core.types import AbilityName, RacerName
-from magical_athlete_simulator.engine.game_engine import GameEngine
+
+if TYPE_CHECKING:
+    from magical_athlete_simulator.core.protocols import LogContext
 
 RACER_NAMES = set(get_args(RacerName))
 ABILITY_NAMES = set(get_args(AbilityName))
@@ -27,31 +30,12 @@ COLOR = {
 }
 
 
-@dataclass(slots=True)
-class LogContext:
-    """Per-game logging state. No longer global."""
-
-    total_turn: int = 0
-    turn_log_count: int = 0
-    current_racer_repr: str = "_"
-
-    def new_round(self):
-        self.total_turn += 1
-
-    def start_turn_log(self, racer_repr: str):
-        self.turn_log_count = 0
-        self.current_racer_repr = racer_repr
-
-    def inc_log_count(self):
-        self.turn_log_count += 1
-
-
 class ContextFilter(logging.Filter):
     """Inject per-engine runtime context into every log record."""
 
-    def __init__(self, engine: GameEngine, name: str = "") -> None:
+    def __init__(self, engine: GameEngineLike, name: str = "") -> None:
         super().__init__(name)  # name is for logger-name filtering; keep default
-        self.engine: GameEngine = engine  # store the existing engine instance
+        self.engine: GameEngineLike = engine  # store the existing engine instance
 
     @override
     def filter(self, record: logging.LogRecord) -> bool:

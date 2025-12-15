@@ -4,16 +4,16 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, override
 
-from magical_athlete_simulator.core.modifier_base import (
+from magical_athlete_simulator.core.protocols import (
     ApproachHookMixin,
+    GameEngineLike,
     LandingHookMixin,
     SpaceModifier,
 )
 from magical_athlete_simulator.core.types import AbilityName, Phase
-from magical_athlete_simulator.engine.game_engine import GameEngine
 
 if TYPE_CHECKING:
-    from magical_athlete_simulator.engine.state import RacerState
+    from magical_athlete_simulator.core.protocols import RacerState
 
 logger = logging.getLogger("magical_athlete")
 
@@ -33,7 +33,7 @@ class Board:
     def finish_space(self) -> int:
         return self.length
 
-    def register_modifier(self, tile: int, modifier: "SpaceModifier") -> None:
+    def register_modifier(self, tile: int, modifier: SpaceModifier) -> None:
         modifiers = self.dynamic_modifiers[tile]
         if modifier not in modifiers:
             modifiers.add(modifier)
@@ -41,7 +41,7 @@ class Board:
                 f"BOARD: Registered {modifier.name} (owner={modifier.owner_idx}) at tile {tile}",
             )
 
-    def unregister_modifier(self, tile: int, modifier: "SpaceModifier") -> None:
+    def unregister_modifier(self, tile: int, modifier: SpaceModifier) -> None:
         modifiers = self.dynamic_modifiers.get(tile)
         if not modifiers or modifier not in modifiers:
             logger.warning(
@@ -66,7 +66,7 @@ class Board:
         self,
         target: int,
         mover_idx: int,
-        engine: GameEngine,
+        engine: GameEngineLike,
     ) -> int:
         visited: set[int] = set()
         current = target
@@ -105,7 +105,7 @@ class Board:
         tile: int,
         racer_idx: int,
         phase: int,
-        engine: GameEngine,
+        engine: GameEngineLike,
     ) -> None:
         for mod in (
             mod
@@ -157,7 +157,7 @@ class MoveDeltaTile(SpaceModifier, LandingHookMixin):
         tile: int,
         racer_idx: int,
         phase: int,
-        engine: GameEngine,
+        engine: GameEngineLike,
     ) -> None:
         if self.delta == 0:
             return
@@ -182,7 +182,7 @@ class TripTile(SpaceModifier, LandingHookMixin):
         tile: int,
         racer_idx: int,
         phase: int,
-        engine: GameEngine,
+        engine: GameEngineLike,
     ) -> None:
         racer = engine.get_racer(racer_idx)
         if racer.tripped:
@@ -209,7 +209,7 @@ class VictoryPointTile(SpaceModifier, LandingHookMixin):
         tile: int,
         racer_idx: int,
         phase: int,
-        engine: GameEngine,
+        engine: GameEngineLike,
     ) -> None:
         racer = engine.get_racer(racer_idx)
         racer.victory_points += self.amount

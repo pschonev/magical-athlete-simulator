@@ -58,7 +58,7 @@ class GameScenario:
 
         # 3. Initialize Engine
         self.state: GameState = GameState(racers)
-        self.engine: GameEngine = GameEngine(self.state, self.mock_rng)
+        self.engine: GameEngineLike = GameEngine(self.state, self.mock_rng)
 
         if dice_rolls:
             self.set_dice_rolls(dice_rolls)

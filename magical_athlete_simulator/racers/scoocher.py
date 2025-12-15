@@ -16,7 +16,7 @@ class AbilityScoochStep(Ability):
     triggers: tuple[type[GameEvent], ...] = (AbilityTriggeredEvent,)
 
     @override
-    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine) -> bool:
+    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngineLike) -> bool:
         if not isinstance(event, AbilityTriggeredEvent):
             return False
 

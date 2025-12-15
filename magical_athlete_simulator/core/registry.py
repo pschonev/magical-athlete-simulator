@@ -1,6 +1,5 @@
 # Build these automatically at module load
-from magical_athlete_simulator.core.ability_base import Ability
-from magical_athlete_simulator.core.modifier_base import Modifier
+from magical_athlete_simulator.core.protocols import Ability, Modifier
 from magical_athlete_simulator.core.types import AbilityName, RacerName
 
 ABILITY_CLASSES: dict[AbilityName, type[Ability]] = {

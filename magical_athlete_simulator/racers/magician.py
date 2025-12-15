@@ -16,7 +16,7 @@ class AbilityMagicalReroll(Ability):
     triggers: tuple[type[GameEvent], ...] = (RollModificationWindowEvent,)
 
     @override
-    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine):
+    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngineLike):
         if not isinstance(event, RollModificationWindowEvent):
             return False
 
