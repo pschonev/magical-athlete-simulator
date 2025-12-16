@@ -10,6 +10,11 @@ if TYPE_CHECKING:
 
 
 @dataclass(slots=True)
+class GameRules:
+    winner_vp: tuple[int, int] = (4, 2)
+
+
+@dataclass(slots=True)
 class RollState:
     serial_id: int = 0
     base_value: int = 0
@@ -52,6 +57,7 @@ class RacerState:
 class GameState:
     racers: list[RacerState]
     board: Board
+    rules: GameRules = field(default_factory=GameRules)
     current_racer_idx: int = 0
     roll_state: RollState = field(default_factory=RollState)
 

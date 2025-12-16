@@ -15,6 +15,7 @@ def check_finish(engine: GameEngine, racer: RacerState) -> bool:
         # Count how many finished before this one
         finishing_position = sum(1 for r in engine.state.racers if r.finished) + 1
         racer.finish_position = finishing_position
+        racer.victory_points += engine.state.rules.winner_vp[finishing_position - 1]
 
         engine.log_info(f"!!! {racer.repr} FINISHED rank {finishing_position} !!!")
 
