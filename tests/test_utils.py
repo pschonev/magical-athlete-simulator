@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from magical_athlete_simulator.core.registry import RACER_ABILITIES
 from magical_athlete_simulator.core.state import GameState, LogContext, RacerState
 from magical_athlete_simulator.core.types import AbilityName, RacerName
+from magical_athlete_simulator.engine import ENGINE_ID_COUNTER
 from magical_athlete_simulator.engine.board import BOARD_DEFINITIONS
 from magical_athlete_simulator.engine.game_engine import GameEngine
 
@@ -57,18 +58,22 @@ class GameScenario:
 
         # 3. Initialize Engine
         self.state: GameState = GameState(racers, board=BOARD_DEFINITIONS["standard"]())
-        self.engine: GameEngine = GameEngine(self.state, self.mock_rng, log_context=LogContext())
+        engine_id = next(ENGINE_ID_COUNTER)
+        self.engine: GameEngine = GameEngine(self.state, self.mock_rng, log_context=LogContext(engine_id=engine_id,
+            engine_level=0,
+            parent_engine_id=None,
+            ))
 
         if dice_rolls:
             self.set_dice_rolls(dice_rolls)
 
     def set_dice_rolls(self, rolls: list[int]):
         """Script the dice rolls (e.g., [1, 6])."""
-        self.mock_rng.randint.side_effect = rolls  # pyright: ignore[reportAny]
+        self.mock_rng.randint.side_effect = rolls
 
     def run_turn(self):
         self.engine.run_turn()
-        self.engine._advance_turn()
+        self.engine._advance_turn()  # pyright: ignore[reportPrivateUsage]
 
     def get_racer(self, idx: int) -> RacerState:
         return self.engine.get_racer(idx)

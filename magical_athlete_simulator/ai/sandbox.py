@@ -1,6 +1,7 @@
 import copy
 
 from magical_athlete_simulator.core.state import LogContext, TurnOutcome
+from magical_athlete_simulator.engine import ENGINE_ID_COUNTER
 from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
@@ -13,12 +14,19 @@ class SandboxEngine:
         state_copy = copy.deepcopy(src.state)
         queue_copy = copy.deepcopy(src.state.queue)
 
+        engine_id = next(ENGINE_ID_COUNTER)
+        log_ctx = LogContext(
+            engine_id=engine_id,
+            engine_level=src.log_context.engine_level + 1,
+            parent_engine_id=src.log_context.engine_id,
+        )
+
         eng = GameEngine(
             state=state_copy,
             rng=src.rng,
             agents=src.agents,  # keep original agents
             verbose=False,
-            log_context=LogContext(),
+            log_context=log_ctx,
         )
         eng.state.queue = queue_copy
 

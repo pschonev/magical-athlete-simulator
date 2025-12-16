@@ -101,9 +101,14 @@ class TurnOutcome:
 class LogContext:
     """Per-game logging state."""
 
+    engine_id: int
+    engine_level: int
+
     total_turn: int = 0
     turn_log_count: int = 0
     current_racer_repr: str = "_"
+
+    parent_engine_id: int | None = None
 
     def new_round(self):
         self.total_turn += 1

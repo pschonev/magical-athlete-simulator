@@ -1,6 +1,5 @@
 import logging
 import re
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, get_args, override
 
 from rich.logging import RichHandler
@@ -17,7 +16,7 @@ ABILITY_NAMES = set(get_args(AbilityName))
 
 # Precompiled regex patterns for highlighting
 ABILITY_PATTERN = re.compile(rf"\b({'|'.join(map(re.escape, ABILITY_NAMES))})\b")
-RACER_PATTERN = re.compile(rf"\b({'|'.join(map(re.escape, RACER_NAMES))})\b")
+RACER_PATTERN = re.compile(rf"(?<!\[)\b({'|'.join(map(re.escape, RACER_NAMES))})\b")
 
 
 # Simple color theme for Rich
@@ -45,6 +44,9 @@ class ContextFilter(logging.Filter):
         record.total_turn = logctx.total_turn
         record.turn_log_count = logctx.turn_log_count
         record.racer_repr = logctx.current_racer_repr
+        record.engine_id = logctx.engine_id
+        record.engine_level = logctx.engine_level
+        record.parent_engine_id = logctx.parent_engine_id
         logctx.inc_log_count()
         return True
 
@@ -56,51 +58,44 @@ class RichMarkupFormatter(logging.Formatter):
         turn_log_count = getattr(record, "turn_log_count", 0)
         racer_repr = getattr(record, "racer_repr", "_")
 
-        prefix = f"{total_turn}.{racer_repr}.{turn_log_count}"
+        engine_level = getattr(record, "engine_level", 0)
+        engine_id = getattr(record, "engine_id", 0)
+        prefix = (
+            f"{engine_level}:{engine_id} {total_turn}.{racer_repr}.{turn_log_count}"
+        )
 
         message = record.getMessage()
-
-        # --- movement highlighting (see next section) ---
         styled = message
-        # Highlight all movement-related words
+
+        # Movement
         styled = re.sub(r"\bMove\b", f"[{COLOR['move']}]Move[/{COLOR['move']}]", styled)
         styled = re.sub(
-            r"\bMoving\b",
-            f"[{COLOR['move']}]Moving[/{COLOR['move']}]",
-            styled,
+            r"\bMoving\b", f"[{COLOR['move']}]Moving[/{COLOR['move']}]", styled
         )
         styled = re.sub(
-            r"\bPushing\b",
-            f"[{COLOR['move']}]Pushing[/{COLOR['move']}]",
-            styled,
+            r"\bPushing\b", f"[{COLOR['move']}]Pushing[/{COLOR['move']}]", styled
         )
         styled = re.sub(
-            r"\bMainMove\b",
-            f"[{COLOR['move']}]MainMove[/{COLOR['move']}]",
-            styled,
+            r"\bMainMove\b", f"[{COLOR['move']}]MainMove[/{COLOR['move']}]", styled
         )
         styled = re.sub(r"\bWarp\b", f"[{COLOR['warp']}]Warp[/{COLOR['warp']}]", styled)
 
-        # Abilities and racer names
+        # Abilities
         styled = ABILITY_PATTERN.sub(
-            rf"[{COLOR['ability']}]\1[/{COLOR['ability']}]",
-            styled,
+            rf"[{COLOR['ability']}]\1[/{COLOR['ability']}]", styled
         )
-        styled = RACER_PATTERN.sub(rf"[{COLOR['racer']}]\1[/{COLOR['racer']}]", styled)
 
-        # Emphasis for "!!!"
+        # !!! and VP
         styled = re.sub(r"!!!", f"[{COLOR['warning']}]!!![/{COLOR['warning']}]", styled)
-
-        # VP
         styled = re.sub(r"\bVP:\b", "[bold yellow]VP:[/]", styled)
         styled = re.sub(r"\b\+1 VP\b", "[bold green]+1 VP[/]", styled)
         styled = re.sub(r"\b-1 VP\b", "[bold red]-1 VP[/]", styled)
 
-        # If warning or higher, tint whole message
+        styled = RACER_PATTERN.sub(rf"[{COLOR['racer']}]\1[/{COLOR['racer']}]", styled)
+
         if record.levelno >= logging.WARNING:
             styled = f"[{COLOR['warning']}]{styled}[/{COLOR['warning']}]"
 
-        # Final string: prefix + message (no level, RichHandler already shows it)
         return f"[{COLOR['prefix']}]{prefix}[/{COLOR['prefix']}]  {styled}"
 
 
