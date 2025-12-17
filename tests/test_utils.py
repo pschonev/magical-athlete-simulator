@@ -5,7 +5,7 @@ from magical_athlete_simulator.core.registry import RACER_ABILITIES
 from magical_athlete_simulator.core.state import GameState, LogContext, RacerState
 from magical_athlete_simulator.core.types import AbilityName, RacerName
 from magical_athlete_simulator.engine import ENGINE_ID_COUNTER
-from magical_athlete_simulator.engine.board import BOARD_DEFINITIONS
+from magical_athlete_simulator.engine.board import BOARD_DEFINITIONS, Board
 from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
@@ -45,6 +45,7 @@ class GameScenario:
         self,
         racers_config: list[RacerConfig],
         dice_rolls: list[int] | None = None,
+        board: Board | None = None,
     ):
         racers: list[RacerState] = []
 
@@ -56,8 +57,12 @@ class GameScenario:
         # 2. Mock the RNG
         self.mock_rng: MagicMock = MagicMock()
 
+
         # 3. Initialize Engine
-        self.state: GameState = GameState(racers, board=BOARD_DEFINITIONS["standard"]())
+        if board is None:
+            board = BOARD_DEFINITIONS["standard"]()
+        self.state: GameState = GameState(racers, board=board)
+
         engine_id = next(ENGINE_ID_COUNTER)
         self.engine: GameEngine = GameEngine(self.state, self.mock_rng, log_context=LogContext(engine_id=engine_id,
             engine_level=0,

@@ -1,7 +1,12 @@
 from typing import TYPE_CHECKING, ClassVar, override
 
 from magical_athlete_simulator.core.abilities import Ability
-from magical_athlete_simulator.core.events import GameEvent, PassingEvent
+from magical_athlete_simulator.core.events import (
+    GameEvent,
+    PassingEvent,
+    Phase,
+    TripCmdEvent,
+)
 
 if TYPE_CHECKING:
     from magical_athlete_simulator.core.types import AbilityName
@@ -17,7 +22,7 @@ class AbilityBananaTrip(Ability):
         if not isinstance(event, PassingEvent):
             return False
 
-        # Logic: Only trigger if *I* am the victim
+        # Only trigger if *I* (Banana) am the victim
         if event.victim_idx != owner_idx:
             return False
 
@@ -25,6 +30,12 @@ class AbilityBananaTrip(Ability):
         if mover.finished:
             return False
 
-        engine.log_info(f"{self.name}: {mover.repr} passed Banana! Tripping mover.")
-        mover.tripped = True
-        return True
+        engine.log_info(f"{self.name}: Queuing TripCmd for {mover.repr}.")
+
+        # Push a command to the queue instead of mutating state directly
+        engine.push_event(
+            TripCmdEvent(racer_idx=mover.idx, source=self.name),
+            phase=Phase.REACTION,  # Reactions happen in their own phase
+        )
+
+        return True  # The ability successfully fired an event

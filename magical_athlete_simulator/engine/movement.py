@@ -8,6 +8,7 @@ from magical_athlete_simulator.core.events import (
     PostWarpEvent,
     PreMoveEvent,
     PreWarpEvent,
+    TripCmdEvent,
     WarpCmdEvent,
 )
 from magical_athlete_simulator.engine.flow import check_finish
@@ -47,6 +48,12 @@ def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
         engine,
     )  # [file:1]
 
+    if end < 0:
+        engine.log_info(
+            f"Attempted to move to {end}. Instead moving to starting tile (0)."
+        )
+        end = 0
+
     # If you get fully blocked back to your start, treat as “no movement”
     if end == start:
         return
@@ -54,19 +61,30 @@ def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
     engine.log_info(f"Move: {racer.repr} {start}->{end} ({evt.source})")  # [file:1]
 
     # 3. Passing events (unchanged from your current logic)
-    if distance > 0:
-        for tile in range(start + 1, min(end, engine.state.board.length)):
-            if tile < end:
-                victims = [
-                    r
-                    for r in engine.state.racers
-                    if r.position == tile and r.idx != racer.idx and not r.finished
-                ]
-                for v in victims:
-                    engine.push_event(
-                        PassingEvent(racer.idx, v.idx, tile),
-                        phase=Phase.MOVE_EXEC,
-                    )  # [file:1]
+    # 3. Passing events
+    if distance != 0:
+        # Determine step direction: 1 for forward, -1 for backward
+        step = 1 if distance > 0 else -1
+
+        # Calculate iteration bounds safely
+        iter_start = start + step
+        iter_end = end + step  # range implies we stop *after* end
+        for tile in range(iter_start, iter_end, step):
+            # Boundary check if board length is strict
+            if not (0 <= tile <= engine.state.board.length):
+                continue
+
+            victims = [
+                r
+                for r in engine.state.racers
+                if r.position == tile and r.idx != racer.idx and not r.finished
+            ]
+
+            for v in victims:
+                engine.push_event(
+                    PassingEvent(racer.idx, v.idx, tile),
+                    phase=Phase.REACTION,
+                )
 
     # 4. Commit position
     racer.position = end
@@ -119,6 +137,12 @@ def handle_warp_cmd(engine: GameEngine, evt: WarpCmdEvent):
         engine,
     )  # [file:1]
 
+    if resolved < 0:
+        engine.log_info(
+            f"Attempted to warp to {resolved}. Instead moving to starting tile (0)."
+        )
+        resolved = 0
+
     if resolved == start:
         return
 
@@ -146,6 +170,16 @@ def handle_warp_cmd(engine: GameEngine, evt: WarpCmdEvent):
             phase=evt.phase,
         ),
     )
+
+
+def handle_trip_cmd(engine: GameEngine, evt: TripCmdEvent):
+    """Handles the resolution of a TripCmdEvent."""
+    racer = engine.get_racer(evt.racer_idx)
+    if racer.finished or racer.tripped:
+        return
+
+    racer.tripped = True
+    engine.log_info(f"{evt.source}: {racer.repr} is now Tripped.")
 
 
 def push_move(

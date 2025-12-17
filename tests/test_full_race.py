@@ -57,8 +57,8 @@ def test_full_race_6_racers_finishes_correctly(scenario: type[GameScenario]):
 
     # Winners (deterministic)
     assert state.racers[2].finish_position == 1 # 2:Scoocher comes first
-    assert state.racers[4].finish_position == 4 # 4:Copycat comes second
+    assert state.racers[4].finish_position == 2 # 4:Copycat comes second
 
     # VP
-    assert state.racers[2].victory_points == 1 # 2:Scoocher comes first
-    assert state.racers[4].finish_position == 4 # 4:Copycat comes second
+    assert state.racers[2].victory_points == 4 # 2:Scoocher comes first
+    assert state.racers[4].victory_points == 2 # 4:Copycat comes second

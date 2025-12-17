@@ -22,4 +22,10 @@ AbilityName = Literal[
     "MagicalReroll",
 ]
 
-ModifierName = Literal["PartySelfBoost", "HugeBabyBlocker", "TripTile"]
+ModifierName = Literal[
+    "PartySelfBoost",
+    "HugeBabyBlocker",
+    "TripTile",
+    "VictoryPointTile",
+    "MoveDeltaTile",
+]

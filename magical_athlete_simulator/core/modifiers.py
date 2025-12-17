@@ -11,7 +11,7 @@ class Modifier(ABC):
     """Base class for all persistent effects."""
 
     owner_idx: int | None
-    name: ClassVar[AbilityName | ModifierName]
+    name: AbilityName | ModifierName
 
     @property
     def display_name(self) -> str:  # instance-level, can be dynamic

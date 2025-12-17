@@ -113,14 +113,14 @@ def test_centaur_trample_ignores_warp(scenario: type[GameScenario]):
     # Warps set position directly, they don't use distance.
     game.engine.push_event(
         WarpCmdEvent(
-            racer_idx=0, target_tile=4, source="AnonymousWarpEvent", phase=Phase.BOARD
+            racer_idx=0, target_tile=4, source="AnonymousWarpEvent", phase=Phase.PRE_MAIN
         ),
-        phase=Phase.BOARD,
+        phase=Phase.PRE_MAIN,
     )
 
     game.run_turn()
 
-    # Centaur warped to 4, then rolled 1 but then warped to space 4
-    assert game.get_racer(0).position == 4
+    # Centaur warped to 4, then rolled 1
+    assert game.get_racer(0).position == 5
     # Scoocher was NOT trampled (stays at 2) because Warps don't "Pass"
     assert game.get_racer(1).position == 2

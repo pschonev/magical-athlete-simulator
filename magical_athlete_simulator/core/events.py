@@ -12,9 +12,9 @@ class Phase(IntEnum):
     ROLL_DICE = 15
     ROLL_WINDOW = 18  # Hook for re-rolls
     MAIN_ACT = 20
+    BOARD = 22
     REACTION = 25
     MOVE_EXEC = 30
-    BOARD = 40
 
 
 class GameEvent:
@@ -76,6 +76,12 @@ class WarpCmdEvent(GameEvent):
     target_tile: int
     source: str
     phase: int
+
+
+@dataclass(frozen=True)
+class TripCmdEvent(GameEvent):
+    racer_idx: int
+    source: str
 
 
 @dataclass(frozen=True)

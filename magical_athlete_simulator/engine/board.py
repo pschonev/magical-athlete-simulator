@@ -150,12 +150,13 @@ class MoveDeltaTile(SpaceModifier, LandingHookMixin):
 
     delta: int = 0
     priority: int = 5
+    owner_idx: int | None = None
+    name: AbilityName | ModifierName = "MoveDeltaTile"
 
     @property
     @override
     def display_name(self) -> str:
-        sign = "+" if self.delta >= 0 else "-"
-        return f"MoveDelta({sign}{self.delta})"
+        return f"MoveDelta({self.delta})"
 
     @override
     def on_land(
@@ -170,7 +171,9 @@ class MoveDeltaTile(SpaceModifier, LandingHookMixin):
         racer: RacerState = engine.get_racer(
             racer_idx,
         )  # uses existing GameEngine API.[file:1]
-        engine.log_info(f"{self.name}: Queuing {self.delta} move for {racer.repr}")
+        engine.log_info(
+            f"{self.display_name}: Queuing {self.delta} move for {racer.repr}",
+        )
         # New move is a separate event, not part of the original main move.[file:1]
         push_move(engine, racer_idx, self.delta, source=self.name, phase=Phase.BOARD)
 
@@ -179,8 +182,9 @@ class MoveDeltaTile(SpaceModifier, LandingHookMixin):
 class TripTile(SpaceModifier, LandingHookMixin):
     """On landing, trip the racer (they skip their next main move)."""
 
-    name: ClassVar[AbilityName | ModifierName] = "TripTile"
+    name: AbilityName | ModifierName = "TripTile"
     priority: int = 5
+    owner_idx: int | None = None
 
     @override
     def on_land(
@@ -203,6 +207,8 @@ class VictoryPointTile(SpaceModifier, LandingHookMixin):
 
     amount: int = 1
     priority: int = 5
+    owner_idx: int | None = None
+    name: AbilityName | ModifierName = "VictoryPointTile"
 
     @property
     @override
@@ -220,7 +226,7 @@ class VictoryPointTile(SpaceModifier, LandingHookMixin):
         racer = engine.get_racer(racer_idx)
         racer.victory_points += self.amount
         engine.log_info(
-            f"{self.name}: {racer.repr} gains +{self.amount} VP ",
+            f"{self.display_name}: {racer.repr} gains +{self.amount} VP ",
             f"(now {racer.victory_points}).",
         )
 
