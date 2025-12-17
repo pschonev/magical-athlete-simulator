@@ -156,7 +156,7 @@ class MoveDeltaTile(SpaceModifier, LandingHookMixin):
     @property
     @override
     def display_name(self) -> str:
-        return f"MoveDelta({self.delta})"
+        return f"MoveDeltaTile({self.delta})"
 
     @override
     def on_land(
@@ -175,7 +175,14 @@ class MoveDeltaTile(SpaceModifier, LandingHookMixin):
             f"{self.display_name}: Queuing {self.delta} move for {racer.repr}",
         )
         # New move is a separate event, not part of the original main move.[file:1]
-        push_move(engine, racer_idx, self.delta, source=self.name, phase=Phase.BOARD)
+        push_move(
+            engine,
+            racer_idx,
+            self.delta,
+            source=self.name,
+            phase=Phase.BOARD,
+            owner_idx=None,
+        )
 
 
 @dataclass

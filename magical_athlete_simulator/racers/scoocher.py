@@ -27,16 +27,24 @@ class AbilityScoochStep(Ability):
         if event.source_racer_idx == owner_idx:
             return False
 
+        # Correct code
+        me = engine.get_racer(owner_idx)  # <--- Get MY state
+        if me.finished:
+            return False
+
+        source_racer = engine.get_racer(owner_idx)
         if event.source_racer_idx is None:
             _ = assert_never
             raise ValueError("AbilityTriggeredEvent should always have a source racer.")
 
         # Logging context
         source_racer: RacerState = engine.get_racer(event.source_racer_idx)
-        cause_msg = f"Saw {source_racer.name} use {event.ability_name}"
+        cause_msg = f"Saw {source_racer.repr} use {event.ability_name}"
 
-        engine.log_info(f"{self.name}: {cause_msg} -> Moving 1")
-        push_move(engine, owner_idx, 1, self.name, phase=Phase.REACTION)
+        engine.log_info(f"{self.name}: {cause_msg} -> Queue Moving 1")
+        push_move(
+            engine, owner_idx, 1, self.name, phase=Phase.REACTION, owner_idx=owner_idx
+        )
 
         # Returns True, so ScoochStep will emit an AbilityTriggeredEvent.
         # This is fine, because the NEXT ScoochStep check will see source_idx == owner_idx

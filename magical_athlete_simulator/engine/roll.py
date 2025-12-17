@@ -45,6 +45,7 @@ def handle_perform_roll(engine: GameEngine, event: PerformRollEvent) -> None:
     engine.push_event(
         RollModificationWindowEvent(event.racer_idx, final, current_serial),
         phase=Phase.ROLL_WINDOW,
+        owner_idx=event.racer_idx,
     )
 
     # 4. Schedule the resolution. If trigger_reroll() was called in step 3,
@@ -52,6 +53,7 @@ def handle_perform_roll(engine: GameEngine, event: PerformRollEvent) -> None:
     engine.push_event(
         ResolveMainMoveEvent(event.racer_idx, current_serial),
         phase=Phase.MAIN_ACT,
+        owner_idx=event.racer_idx,
     )
 
 
@@ -63,7 +65,14 @@ def resolve_main_move(engine: GameEngine, event: ResolveMainMoveEvent):
 
     dist = engine.state.roll_state.final_value
     if dist > 0:
-        push_move(engine, event.racer_idx, dist, "MainMove", phase=Phase.MOVE_EXEC)
+        push_move(
+            engine,
+            event.racer_idx,
+            dist,
+            "MainMove",
+            phase=Phase.MOVE_EXEC,
+            owner_idx=event.racer_idx,
+        )
 
 
 def trigger_reroll(engine: GameEngine, source_idx: int, reason: str):
@@ -81,4 +90,5 @@ def trigger_reroll(engine: GameEngine, source_idx: int, reason: str):
     engine.push_event(
         PerformRollEvent(engine.state.current_racer_idx),
         phase=Phase.REACTION + 1,
+        owner_idx=engine.state.current_racer_idx,
     )

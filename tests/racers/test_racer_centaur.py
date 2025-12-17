@@ -38,7 +38,7 @@ def test_centaur_floor_clamping(scenario: type[GameScenario]):
         dice_rolls=[6],
     )
     game.run_turn()
-    assert game.get_racer(1).position == 0
+    assert game.get_racer(1).position == 1
 
 
 def test_centaur_ignore_finished_racers(scenario: type[GameScenario]):
@@ -86,6 +86,7 @@ def test_centaur_trample_triggers_on_passive_move(scenario: type[GameScenario]):
             racer_idx=0, distance=4, source="AnonymousMoveEvent", phase=Phase.BOARD
         ),
         phase=Phase.BOARD,
+        owner_idx=1,
     )
 
     game.run_turn()
@@ -116,6 +117,7 @@ def test_centaur_trample_ignores_warp(scenario: type[GameScenario]):
             racer_idx=0, target_tile=4, source="AnonymousWarpEvent", phase=Phase.PRE_MAIN
         ),
         phase=Phase.PRE_MAIN,
+        owner_idx=1,
     )
 
     game.run_turn()

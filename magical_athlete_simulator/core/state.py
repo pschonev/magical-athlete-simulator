@@ -64,10 +64,10 @@ class GameState:
     queue: list[ScheduledEvent] = field(default_factory=list)
     serial: int = 0
     race_over: bool = False
-    history: set[tuple[int, int]] = field(default_factory=set)
+    history: set[int] = field(default_factory=set)
 
     def get_state_hash(self) -> int:
-        """Hash entire game state including all racer data."""
+        """Hash entire game state including racers, board, and semantic queue content."""
         racer_data = tuple(
             (
                 r.idx,
@@ -89,7 +89,11 @@ class GameState:
 
         roll_data = (self.roll_state.serial_id, self.roll_state.base_value)
 
-        return hash((racer_data, board_data, roll_data))
+        queue_data = tuple(
+            sorted((se.phase, se.priority, repr(se.event)) for se in self.queue),
+        )
+
+        return hash((racer_data, board_data, roll_data, queue_data))
 
 
 @dataclass(frozen=True)

@@ -82,6 +82,7 @@ class WarpCmdEvent(GameEvent):
 class TripCmdEvent(GameEvent):
     racer_idx: int
     source: str
+    source_racer_idx: int | None = None
 
 
 @dataclass(frozen=True)

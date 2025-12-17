@@ -11,6 +11,7 @@ from magical_athlete_simulator.core.events import (
     TripCmdEvent,
     WarpCmdEvent,
 )
+from magical_athlete_simulator.engine.abilities import emit_ability_trigger
 from magical_athlete_simulator.engine.flow import check_finish
 
 if TYPE_CHECKING:
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 
 def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
     racer = engine.get_racer(evt.racer_idx)
-    if racer.finished:
+    if not racer.active:
         return
 
     # Moving 0 is not moving at all
@@ -66,25 +67,25 @@ def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
         # Determine step direction: 1 for forward, -1 for backward
         step = 1 if distance > 0 else -1
 
-        # Calculate iteration bounds safely
-        iter_start = start + step
-        iter_end = end + step  # range implies we stop *after* end
-        for tile in range(iter_start, iter_end, step):
-            # Boundary check if board length is strict
-            if not (0 <= tile <= engine.state.board.length):
-                continue
-
-            victims = [
-                r
-                for r in engine.state.racers
-                if r.position == tile and r.idx != racer.idx and not r.finished
-            ]
-
-            for v in victims:
-                engine.push_event(
-                    PassingEvent(racer.idx, v.idx, tile),
-                    phase=Phase.REACTION,
-                )
+        current = start + step
+        while current != end:
+            # Check bounds just in case
+            if 0 <= current < engine.state.board.length:
+                victims = [
+                    r
+                    for r in engine.state.racers
+                    if r.position == current and r.idx != racer.idx and not r.finished
+                ]
+                for v in victims:
+                    engine.push_event(
+                        PassingEvent(racer.idx, v.idx, current),
+                        phase=Phase.REACTION,
+                        owner_idx=racer.idx,
+                    )
+            current += step
+            # Safety break if we overshoot (shouldn't happen with step logic but good practice)
+            if (step > 0 and current > end) or (step < 0 and current < end):
+                break
 
     # 4. Commit position
     racer.position = end
@@ -110,7 +111,7 @@ def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
 
 def handle_warp_cmd(engine: GameEngine, evt: WarpCmdEvent):
     racer = engine.get_racer(evt.racer_idx)
-    if racer.finished:
+    if not racer.active:
         return
 
     start = racer.position
@@ -173,13 +174,23 @@ def handle_warp_cmd(engine: GameEngine, evt: WarpCmdEvent):
 
 
 def handle_trip_cmd(engine: GameEngine, evt: TripCmdEvent):
-    """Handles the resolution of a TripCmdEvent."""
     racer = engine.get_racer(evt.racer_idx)
-    if racer.finished or racer.tripped:
+
+    # If already tripped or finished, do nothing AND emit nothing.
+    if not racer.active or racer.tripped:
         return
 
+    # Apply effect
     racer.tripped = True
     engine.log_info(f"{evt.source}: {racer.repr} is now Tripped.")
+
+    if evt.source_racer_idx is not None:
+        emit_ability_trigger(
+            engine,
+            evt.source_racer_idx,
+            evt.source,  # Ability Name (e.g. "BananaTrip")
+            f"Tripped {racer.repr}",
+        )
 
 
 def push_move(
@@ -188,15 +199,31 @@ def push_move(
     distance: int,
     source: str,
     phase: int,
+    owner_idx: int | None,
 ):
     if distance == 0:
         return
     # Pass phase into the event data
-    engine.push_event(MoveCmdEvent(racer_idx, distance, source, phase), phase=phase)
+    engine.push_event(
+        MoveCmdEvent(racer_idx, distance, source, phase),
+        phase=phase,
+        owner_idx=owner_idx,
+    )
 
 
-def push_warp(engine: GameEngine, racer_idx: int, target: int, source: str, phase: int):
+def push_warp(
+    engine: GameEngine,
+    racer_idx: int,
+    target: int,
+    source: str,
+    phase: int,
+    owner_idx: int | None,
+):
     if engine.get_racer(racer_idx).position == target:
         return
     # Pass phase into the event data
-    engine.push_event(WarpCmdEvent(racer_idx, target, source, phase), phase=phase)
+    engine.push_event(
+        WarpCmdEvent(racer_idx, target, source, phase),
+        phase=phase,
+        owner_idx=owner_idx,
+    )

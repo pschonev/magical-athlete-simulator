@@ -31,4 +31,5 @@ def emit_ability_trigger(
     engine.push_event(
         AbilityTriggeredEvent(source_idx, ability, log_context),
         phase=Phase.REACTION,
+        owner_idx=source_idx,
     )

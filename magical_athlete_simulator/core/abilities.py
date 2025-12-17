@@ -32,7 +32,7 @@ class Ability(ABC):
         It checks liveness, executes logic, and automatically emits the trigger event.
         """
         # 1. Dead racers tell no tales (usually)
-        if engine.state.racers[owner_idx].finished:
+        if not engine.state.racers[owner_idx].active:
             return
 
         # 2. Execute

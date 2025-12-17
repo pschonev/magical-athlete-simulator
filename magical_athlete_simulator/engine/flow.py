@@ -23,6 +23,7 @@ def check_finish(engine: GameEngine, racer: RacerState) -> bool:
         engine.push_event(
             RacerFinishedEvent(racer.idx, finishing_position),
             phase=Phase.REACTION,
+            owner_idx=None,
         )
 
         # Strip abilities

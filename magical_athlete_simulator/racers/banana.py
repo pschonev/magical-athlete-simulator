@@ -34,8 +34,13 @@ class AbilityBananaTrip(Ability):
 
         # Push a command to the queue instead of mutating state directly
         engine.push_event(
-            TripCmdEvent(racer_idx=mover.idx, source=self.name),
+            TripCmdEvent(
+                racer_idx=mover.idx,
+                source=self.name,
+                source_racer_idx=owner_idx,
+            ),
             phase=Phase.REACTION,  # Reactions happen in their own phase
+            owner_idx=owner_idx,
         )
 
-        return True  # The ability successfully fired an event
+        return False  # delay this until we know whether the tripping happened

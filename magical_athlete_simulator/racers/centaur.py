@@ -31,5 +31,12 @@ class AbilityTrample(Ability):
             return False
 
         engine.log_info(f"{self.name}: Centaur passed {victim.repr}. Queuing -2 move.")
-        push_move(engine, victim.idx, -2, self.name, phase=Phase.REACTION)
+        push_move(
+            engine,
+            victim.idx,
+            -2,
+            self.name,
+            phase=Phase.REACTION,
+            owner_idx=owner_idx,
+        )
         return True

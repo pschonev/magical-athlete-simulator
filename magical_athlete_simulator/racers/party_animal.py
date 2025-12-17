@@ -52,7 +52,14 @@ class AbilityPartyPull(Ability):
                 direction = -1
 
             if direction != 0:
-                push_move(engine, r.idx, direction, self.name, phase=Phase.PRE_MAIN)
+                push_move(
+                    engine,
+                    r.idx,
+                    direction,
+                    self.name,
+                    phase=Phase.PRE_MAIN,
+                    owner_idx=owner_idx,
+                )
                 any_affected = True
 
         if any_affected:

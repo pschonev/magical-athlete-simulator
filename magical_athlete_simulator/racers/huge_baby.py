@@ -28,7 +28,7 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
     Blocks others from entering the tile by redirecting them backward.
     """
 
-    name: ClassVar[AbilityName | ModifierName] = "HugeBabyBlocker"
+    name: AbilityName | ModifierName = "HugeBabyBlocker"
     priority: int = 10
 
     @override
@@ -37,7 +37,12 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
         if target == 0:
             return target
 
-        engine.log_info(f"HugeBaby already occupies {target}!")
+        emit_ability_trigger(
+            engine,
+            mover_idx,
+            self.name,
+            f"HugeBaby already occupies {target}!",
+        )
         # Redirect to the previous tile
         return max(0, target - 1)
 
@@ -114,7 +119,14 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
 
             for v in victims:
                 target = max(0, event.end_tile - 1)
-                push_warp(engine, v.idx, target, source=self.name, phase=event.phase)
+                push_warp(
+                    engine,
+                    v.idx,
+                    target,
+                    source=self.name,
+                    phase=event.phase,
+                    owner_idx=None,
+                )
                 engine.log_info(f"HugeBaby pushes {v.repr} to {target}")
 
                 # Explicitly emit a trigger for THIS push.

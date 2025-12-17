@@ -77,9 +77,6 @@ class GameEngine:
             initial = RACER_ABILITIES.get(racer.name, set())
             self.update_racer_abilities(racer.idx, initial)
 
-        # Rebuild subscribers
-        self._rebuild_subscribers()
-
         for racer in self.state.racers:
             _ = self.agents.setdefault(racer.idx, SmartAgent(self.state.board))
 
@@ -101,22 +98,26 @@ class GameEngine:
         if racer.tripped:
             self.log_info(f"{racer.repr} recovers from Trip.")
             racer.tripped = False
-            self.push_event(TurnStartEvent(cr), phase=Phase.SYSTEM)
+            self.push_event(TurnStartEvent(cr), phase=Phase.SYSTEM, owner_idx=cr)
         else:
-            self.push_event(TurnStartEvent(cr), phase=Phase.SYSTEM)
-            self.push_event(PerformRollEvent(cr), phase=Phase.ROLL_DICE)
+            self.push_event(TurnStartEvent(cr), phase=Phase.SYSTEM, owner_idx=cr)
+            self.push_event(PerformRollEvent(cr), phase=Phase.ROLL_DICE, owner_idx=cr)
 
         while self.state.queue and not self.state.race_over:
+            # 1. Snapshot the FULL state (racers + board + queue semantics)
+            current_hash = self.state.get_state_hash()
+
+            # 2. Check for cycle
+            if current_hash in self.state.history:
+                self.log_warning(
+                    "Infinite loop detected (state + queue cycle). Aborting turn."
+                )
+                break
+
+            self.state.history.add(current_hash)
+
+            # 3. Proceed
             sched = heapq.heappop(self.state.queue)
-
-            # Loop Detection
-            state_hash = self.state.get_state_hash()
-            event_sig = hash(repr(sched.event))
-            if (state_hash, event_sig) in self.state.history:
-                self.log_warning(f"Loop detected for {sched.event}. Discarding.")
-                continue
-            self.state.history.add((state_hash, event_sig))
-
             self._handle_event(sched.event)
 
     def _advance_turn(self):
@@ -134,9 +135,29 @@ class GameEngine:
         self.state.current_racer_idx = next_idx
 
     # --- Event Management ---
-    def push_event(self, event: GameEvent, *, phase: int):
+    def push_event(self, event: GameEvent, *, phase: int, owner_idx: int | None):
+        """
+        Pushes an event to the queue with automatic turn-order priority.
+
+        Args:
+            event: The GameEvent to schedule.
+            phase: The timing phase (e.g. Phase.REACTION).
+            owner_idx: The racer ID responsible for this event.
+                       Pass None for Board/System events (highest priority).
+        """
+
+        # Calculate Priority
+        if owner_idx is None:
+            # Board/System => Priority 0 (Highest)
+            priority = 0
+        else:
+            # Player => Priority 1 + Turn Order Distance
+            curr = self.state.current_racer_idx
+            count = len(self.state.racers)
+            priority = 1 + ((owner_idx - curr) % count)
+
         self.state.serial += 1
-        sched = ScheduledEvent(phase, 0, self.state.serial, event)
+        sched = ScheduledEvent(phase, priority, self.state.serial, event)
         heapq.heappush(self.state.queue, sched)
 
     def _rebuild_subscribers(self):
