@@ -166,7 +166,14 @@ class GameEngine:
             new_depth = 0
 
         self.state.serial += 1
-        sched = ScheduledEvent(phase, new_depth, priority, self.state.serial, event)
+        sched = ScheduledEvent(
+            phase,
+            new_depth,
+            priority,
+            self.state.serial,
+            event,
+            mode=self.state.rules.timing_mode,
+        )
         heapq.heappush(self.state.queue, sched)
 
     def _rebuild_subscribers(self):

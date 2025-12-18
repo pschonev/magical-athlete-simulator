@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from unittest.mock import MagicMock
 
 from magical_athlete_simulator.core.registry import RACER_ABILITIES
-from magical_athlete_simulator.core.state import GameState, LogContext, RacerState
+from magical_athlete_simulator.core.state import GameRules, GameState, LogContext, RacerState
 from magical_athlete_simulator.core.types import AbilityName, RacerName
 from magical_athlete_simulator.engine import ENGINE_ID_COUNTER
 from magical_athlete_simulator.engine.board import BOARD_DEFINITIONS, Board
@@ -46,6 +46,7 @@ class GameScenario:
         racers_config: list[RacerConfig],
         dice_rolls: list[int] | None = None,
         board: Board | None = None,
+        rules: GameRules | None = None,
     ):
         racers: list[RacerState] = []
 
@@ -61,7 +62,10 @@ class GameScenario:
         # 3. Initialize Engine
         if board is None:
             board = BOARD_DEFINITIONS["standard"]()
-        self.state: GameState = GameState(racers, board=board)
+
+        if rules is None:
+            rules = GameRules()
+        self.state: GameState = GameState(racers, board=board, rules=rules)
 
         engine_id = next(ENGINE_ID_COUNTER)
         self.engine: GameEngine = GameEngine(self.state, self.mock_rng, log_context=LogContext(engine_id=engine_id,

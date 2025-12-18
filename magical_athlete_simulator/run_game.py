@@ -1,7 +1,12 @@
 import random
 from typing import TYPE_CHECKING
 
-from magical_athlete_simulator.core.state import GameState, LogContext, RacerState
+from magical_athlete_simulator.core.state import (
+    GameRules,
+    GameState,
+    LogContext,
+    RacerState,
+)
 from magical_athlete_simulator.engine import ENGINE_ID_COUNTER
 from magical_athlete_simulator.engine.board import BOARD_DEFINITIONS
 from magical_athlete_simulator.engine.game_engine import GameEngine
@@ -21,7 +26,11 @@ if __name__ == "__main__":
     racers = [RacerState(i, n) for i, n in enumerate(roster)]
     engine_id = next(ENGINE_ID_COUNTER)
     eng = GameEngine(
-        GameState(racers=racers, board=BOARD_DEFINITIONS["standard"]()),
+        GameState(
+            racers=racers,
+            board=BOARD_DEFINITIONS["standard"](),
+            rules=GameRules(timing_mode="DFS"),
+        ),
         random.Random(1),
         log_context=LogContext(
             engine_id=engine_id,

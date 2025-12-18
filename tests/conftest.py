@@ -1,5 +1,6 @@
 from typing import Callable
 import pytest
+from magical_athlete_simulator.core.state import GameRules
 from magical_athlete_simulator.engine.board import Board
 from tests.test_utils import GameScenario, RacerConfig
 
@@ -8,7 +9,7 @@ from tests.test_utils import GameScenario, RacerConfig
 def scenario() -> Callable[..., GameScenario]:
     """Factory fixture to create scenarios."""
 
-    def _builder(racers_config: list[RacerConfig], dice_rolls: list[int], board: Board | None = None) -> GameScenario:
-        return GameScenario(racers_config, dice_rolls, board)
+    def _builder(racers_config: list[RacerConfig], dice_rolls: list[int], board: Board | None = None, rules: GameRules | None = None) -> GameScenario:
+        return GameScenario(racers_config, dice_rolls, board, rules)
 
     return _builder
