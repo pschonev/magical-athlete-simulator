@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, ClassVar, override
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, override
 
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.agent import BooleanDecision, DecisionReason
@@ -15,8 +16,9 @@ if TYPE_CHECKING:
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
+@dataclass
 class AbilityMagicalReroll(Ability):
-    name: ClassVar[AbilityName] = "MagicalReroll"
+    name: AbilityName = "MagicalReroll"
     triggers: tuple[type[GameEvent], ...] = (RollModificationWindowEvent,)
 
     @override

@@ -55,7 +55,7 @@ def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
 
     if end < 0:
         engine.log_info(
-            f"Attempted to move to {end}. Instead moving to starting tile (0).",
+            f"Attempted to move {racer.repr} to {end}. Instead moving to starting tile (0).",
         )
         end = 0
 
@@ -224,7 +224,7 @@ def push_move(
     moved_racer_idx: int,
     source: Source,
     responsible_racer_idx: int | None,
-    emit_ability_triggered: EventTriggerMode = "after_resolution",
+    emit_ability_triggered: EventTriggerMode = "never",
 ):
     engine.push_event(
         MoveCmdEvent(
@@ -246,7 +246,7 @@ def push_warp(
     warped_racer_idx: int,
     source: Source,
     responsible_racer_idx: int | None,
-    emit_ability_triggered: EventTriggerMode = "after_resolution",
+    emit_ability_triggered: EventTriggerMode = "never",
 ):
     engine.push_event(
         WarpCmdEvent(

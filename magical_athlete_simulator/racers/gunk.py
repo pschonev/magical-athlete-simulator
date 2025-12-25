@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, override
+from typing import TYPE_CHECKING, override
 
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import AbilityTriggeredEvent, Phase
@@ -44,8 +44,9 @@ class ModifierSlime(RacerModifier, RollModificationMixin):
         )
 
 
+@dataclass
 class AbilitySlime(Ability, LifecycleManagedMixin):
-    name: ClassVar[AbilityName] = "Slime"
+    name: AbilityName = "Slime"
     triggers: tuple[type[GameEvent], ...] = ()
 
     @override

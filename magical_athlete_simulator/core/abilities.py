@@ -1,5 +1,6 @@
 from abc import ABC
-from typing import TYPE_CHECKING, ClassVar
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
@@ -12,12 +13,13 @@ if TYPE_CHECKING:
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
+@dataclass
 class Ability(ABC):
     """Base class for all racer abilities.
     Enforces a unique name and handles automatic event emission upon execution.
     """
 
-    name: ClassVar[AbilityName]
+    name: AbilityName
     triggers: tuple[type[GameEvent], ...] = ()
 
     def register(self, engine: GameEngine, owner_idx: int):

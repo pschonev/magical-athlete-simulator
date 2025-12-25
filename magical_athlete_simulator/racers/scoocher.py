@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, ClassVar, override
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, override
 
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import (
@@ -15,8 +16,9 @@ if TYPE_CHECKING:
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
+@dataclass
 class AbilityScoochStep(Ability):
-    name: ClassVar[AbilityName] = "ScoochStep"
+    name: AbilityName = "ScoochStep"
     triggers: tuple[type[GameEvent], ...] = (AbilityTriggeredEvent,)
 
     @override
@@ -49,7 +51,7 @@ class AbilityScoochStep(Ability):
 
         cause_msg = f"Saw {source_racer.repr} use {event.source}{target_msg}"
 
-        engine.log_info(f"{self.name}: {cause_msg} -> Queue Moving 1")
+        engine.log_info(f"{owner_idx}:{self.name}: {cause_msg} -> Queue Moving 1")
         push_move(
             engine,
             1,
@@ -57,6 +59,7 @@ class AbilityScoochStep(Ability):
             moved_racer_idx=owner_idx,
             source=self.name,
             responsible_racer_idx=owner_idx,
+            emit_ability_triggered="after_resolution",
         )
 
         # Returns True, so ScoochStep will emit an AbilityTriggeredEvent.
@@ -65,8 +68,4 @@ class AbilityScoochStep(Ability):
         # If two Scoochers exist, they WILL infinite loop off each other.
         # That is actually consistent with the board game rules (infinite loop -> execute once -> stop).
         # Our Engine loop detector handles the "Stop" part.
-        return AbilityTriggeredEvent(
-            responsible_racer_idx=owner_idx,
-            source=self.name,
-            phase=event.phase,
-        )
+        return "skip_trigger"

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, override
+from typing import TYPE_CHECKING, override
 
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import (
@@ -36,7 +36,7 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
     def on_approach(
         self,
         target: int,
-        mover_idx: int,
+        modifier_owner_idx: int,
         engine: GameEngine,
         event: GameEvent,
     ) -> int:
@@ -44,9 +44,12 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
         if target == 0:
             return target
 
+        if self.owner_idx is None:
+            msg = f"Expected ID of {self.display_name} owner but got None"
+            raise ValueError(msg)
         engine.push_event(
             AbilityTriggeredEvent(
-                mover_idx,
+                self.owner_idx,
                 source=self.name,
                 phase=event.phase,
             ),
@@ -55,8 +58,9 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
         return max(0, target - 1)
 
 
+@dataclass
 class HugeBabyPush(Ability, LifecycleManagedMixin):
-    name: ClassVar[AbilityName] = "HugeBabyPush"
+    name: AbilityName = "HugeBabyPush"
     triggers: tuple[type[GameEvent], ...] = (
         PreMoveEvent,
         PreWarpEvent,

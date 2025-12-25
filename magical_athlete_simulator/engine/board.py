@@ -3,12 +3,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, override
 
-from magical_athlete_simulator.core.events import GameEvent, Phase
 from magical_athlete_simulator.core.mixins import ApproachHookMixin, LandingHookMixin
 from magical_athlete_simulator.core.modifiers import SpaceModifier
 from magical_athlete_simulator.engine.movement import push_move
 
 if TYPE_CHECKING:
+    from magical_athlete_simulator.core.events import GameEvent, Phase
     from magical_athlete_simulator.core.state import RacerState
     from magical_athlete_simulator.core.types import AbilityName, ModifierName
     from magical_athlete_simulator.engine.game_engine import GameEngine
@@ -71,7 +71,7 @@ class Board:
     def resolve_position(
         self,
         target: int,
-        mover_idx: int,
+        moving_racer_idx: int,
         engine: GameEngine,
         event: GameEvent,
     ) -> int:
@@ -87,12 +87,12 @@ class Board:
                 for mod in self.get_modifiers_at(current)
                 if isinstance(mod, ApproachHookMixin)
             ):
-                redirected = mod.on_approach(current, mover_idx, engine, event)
+                redirected = mod.on_approach(current, moving_racer_idx, engine, event)
                 if redirected != current:
-                    engine.log_debug(
+                    engine.log_info(
                         "%s redirected %s from %s -> %s",
                         mod.name,
-                        mover_idx,
+                        engine.get_racer(moving_racer_idx).repr,
                         current,
                         redirected,
                     )
@@ -111,7 +111,7 @@ class Board:
         self,
         tile: int,
         racer_idx: int,
-        phase: int,
+        phase: Phase,
         engine: GameEngine,
     ) -> None:
         for mod in (
@@ -164,7 +164,7 @@ class MoveDeltaTile(SpaceModifier, LandingHookMixin):
         self,
         tile: int,
         racer_idx: int,
-        phase: int,
+        phase: Phase,
         engine: GameEngine,
     ) -> None:
         if self.delta == 0:
@@ -179,7 +179,7 @@ class MoveDeltaTile(SpaceModifier, LandingHookMixin):
         push_move(
             engine,
             self.delta,
-            phase=Phase.BOARD,
+            phase=phase,
             moved_racer_idx=racer_idx,
             source=self.name,
             responsible_racer_idx=None,
@@ -199,7 +199,7 @@ class TripTile(SpaceModifier, LandingHookMixin):
         self,
         tile: int,
         racer_idx: int,
-        phase: int,
+        phase: Phase,
         engine: GameEngine,
     ) -> None:
         racer = engine.get_racer(racer_idx)
@@ -228,7 +228,7 @@ class VictoryPointTile(SpaceModifier, LandingHookMixin):
         self,
         tile: int,
         racer_idx: int,
-        phase: int,
+        phase: Phase,
         engine: GameEngine,
     ) -> None:
         racer = engine.get_racer(racer_idx)

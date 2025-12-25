@@ -16,4 +16,5 @@ def remove_racer_modifier(engine: GameEngine, target_idx: int, modifier: RacerMo
     racer = engine.get_racer(target_idx)
     if modifier in racer.modifiers:
         racer.modifiers.remove(modifier)
+
         engine.log_info(f"ENGINE: Removed {modifier.name} from {racer.repr}")

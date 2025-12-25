@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, ClassVar, override
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, override
 
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import (
@@ -13,8 +14,9 @@ if TYPE_CHECKING:
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
+@dataclass
 class AbilityTrample(Ability):
-    name: ClassVar[AbilityName] = "Trample"
+    name: AbilityName = "Trample"
     triggers: tuple[type[GameEvent]] = (PassingEvent,)
 
     @override
@@ -27,11 +29,11 @@ class AbilityTrample(Ability):
         if not isinstance(event, PassingEvent):
             return "skip_trigger"
 
-        # Logic: Only trigger if *I* am the mover
-        if event.responsible_racer_idx != owner_idx:
+        #
+        if event.passing_racer_idx != owner_idx:
             return "skip_trigger"
 
-        victim = engine.get_racer(event.target_racer_idx)
+        victim = engine.get_racer(event.passed_racer_idx)
         if victim.finished:
             return "skip_trigger"
 
@@ -43,5 +45,6 @@ class AbilityTrample(Ability):
             moved_racer_idx=victim.idx,
             source=self.name,
             responsible_racer_idx=owner_idx,
+            emit_ability_triggered="after_resolution",
         )
         return "skip_trigger"

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from magical_athlete_simulator.ai.smart_agent import SmartAgent
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
+    EmitsAbilityTriggeredEvent,
     GameEvent,
     MoveCmdEvent,
     PassingEvent,
@@ -170,6 +171,12 @@ class GameEngine:
 
         # Calculate Priority based on turn order
         if event.responsible_racer_idx is None:
+            if (
+                isinstance(event, EmitsAbilityTriggeredEvent)
+                and event.emit_ability_triggered != "never"
+            ):
+                msg = f"Received a {event.__class__.__name__} with no responsible racer ID and ability trigger mode {event.emit_ability_triggered}. AbilityTriggeredEvent can only be sent by racers."
+                raise ValueError(msg)
             # Board/System => Priority 0 (Highest)
             priority = 0
         else:
@@ -194,6 +201,12 @@ class GameEngine:
             mode=self.state.rules.timing_mode,
         )
         heapq.heappush(self.state.queue, sched)
+
+        if (
+            isinstance(event, EmitsAbilityTriggeredEvent)
+            and event.emit_ability_triggered == "immediately"
+        ):
+            self.push_event(AbilityTriggeredEvent.from_event(event))
 
     def _rebuild_subscribers(self):
         """Rebuild event subscriptions from each racer's active_abilities."""
@@ -242,7 +255,7 @@ class GameEngine:
         for name in added:
             ability_cls = get_ability_classes().get(name)
             if ability_cls:
-                instance = ability_cls()
+                instance = ability_cls(name=name)
 
                 instance.register(self, racer_idx)
                 current_instances[name] = instance

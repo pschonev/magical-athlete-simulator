@@ -71,7 +71,7 @@ def test_chaos_chain_reaction(scenario: type[GameScenario]):
     # 4. Huge Baby: Starts 2 -> Ends 0
     assert baby.position == 0, f"Baby should be at 0, but is at {baby.position}"
     
-    # 3. Banana: Starts 4 -> Ends 4
+    # 3. Banana: Starts 4 -> Ends 0
     # (This implies Banana was trampled 4->2, then moved back 2->4? Or never moved?)
     assert banana.position == 0, f"Banana should be at 0, but is at {banana.position}"
 
@@ -79,7 +79,8 @@ def test_chaos_chain_reaction(scenario: type[GameScenario]):
     assert centaur.position == 4, f"Centaur should be at 4, but is at {centaur.position}"
     assert centaur.tripped is True, "Centaur should be tripped"
     
-    # 2. Scoocher: Starts 3 -> Ends 10, Tripped=False
-    assert scoocher.position == 5, f"Scoocher should be at 5, but is at {scoocher.position}"
+    # 2. Scoocher: Moves a whole lot in a cycle between DeltaTiles
+    # misses two triggers of Trample because HugeBaby is already at 0
+    assert scoocher.position == 3, f"Scoocher should be at 3, but is at {scoocher.position}"
     assert scoocher.tripped is False, "Scoocher should not be tripped"
 

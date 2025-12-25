@@ -2,7 +2,11 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from magical_athlete_simulator.core.events import GameEvent, MoveDistanceQuery
+    from magical_athlete_simulator.core.events import (
+        GameEvent,
+        MoveDistanceQuery,
+        Phase,
+    )
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
@@ -26,7 +30,7 @@ class ApproachHookMixin(ABC):
     def on_approach(
         self,
         target: int,
-        mover_idx: int,
+        modifier_owner_idx: int,
         engine: GameEngine,
         event: GameEvent,
     ) -> int:
@@ -41,7 +45,7 @@ class LandingHookMixin(ABC):
         self,
         tile: int,
         racer_idx: int,
-        phase: int,
+        phase: Phase,
         engine: GameEngine,
     ) -> None:
         pass

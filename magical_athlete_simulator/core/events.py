@@ -18,7 +18,6 @@ class Phase(IntEnum):
     ROLL_WINDOW = 18  # Hook for re-rolls
     MAIN_ACT = 20
     MOVE_EXEC = 21
-    BOARD = 22
     REACTION = 25
 
 
@@ -90,17 +89,25 @@ class PassingEvent(GameEvent):
     tile_idx: int
     phase: Phase = Phase.ROLL_DICE
 
+    @property
+    def passing_racer_idx(self) -> int:
+        return self.responsible_racer_idx
+
+    @property
+    def passed_racer_idx(self) -> int:
+        return self.target_racer_idx
+
 
 @dataclass(frozen=True, kw_only=True)
 class MoveCmdEvent(GameEvent, EmitsAbilityTriggeredEvent, HasTargetRacer):
     distance: int
-    emit_ability_triggered: EventTriggerMode = "after_resolution"
+    emit_ability_triggered: EventTriggerMode = "never"
 
 
 @dataclass(frozen=True, kw_only=True)
 class WarpCmdEvent(GameEvent, EmitsAbilityTriggeredEvent, HasTargetRacer):
     target_tile: int
-    emit_ability_triggered: EventTriggerMode = "after_resolution"
+    emit_ability_triggered: EventTriggerMode = "never"
 
 
 @dataclass(frozen=True)

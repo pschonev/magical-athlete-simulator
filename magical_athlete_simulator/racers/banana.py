@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, ClassVar, override
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, override
 
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import (
@@ -13,8 +14,9 @@ if TYPE_CHECKING:
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
+@dataclass
 class AbilityBananaTrip(Ability):
-    name: ClassVar[AbilityName] = "BananaTrip"
+    name: AbilityName = "BananaTrip"
     triggers: tuple[type[GameEvent]] = (PassingEvent,)
 
     @override
@@ -27,20 +29,18 @@ class AbilityBananaTrip(Ability):
         if not isinstance(event, PassingEvent):
             return "skip_trigger"
 
-        # Only trigger if *I* (Banana) am the victim
-        if event.target_racer_idx != owner_idx:
+        # check if passed racer has Banana ability
+        if event.passed_racer_idx != owner_idx:
             return "skip_trigger"
 
-        mover = engine.get_racer(event.responsible_racer_idx)
-        if mover.finished:
+        victim = engine.get_racer(event.passing_racer_idx)
+        if victim.finished:
             return "skip_trigger"
 
-        engine.log_info(f"{self.name}: Queuing TripCmd for {mover.repr}.")
-
-        # Push a command to the queue instead of mutating state directly
+        engine.log_info(f"{self.name}: Queuing TripCmd for {victim.repr}.")
         push_trip(
             engine,
-            tripped_racer_idx=owner_idx,
+            tripped_racer_idx=event.passing_racer_idx,
             source=self.name,
             responsible_racer_idx=owner_idx,
             phase=event.phase,

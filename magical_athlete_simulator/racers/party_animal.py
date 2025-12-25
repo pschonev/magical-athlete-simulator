@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, assert_never, override
+from typing import TYPE_CHECKING, assert_never, override
 
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import (
@@ -26,8 +26,9 @@ if TYPE_CHECKING:
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
+@dataclass
 class AbilityPartyPull(Ability):
-    name: ClassVar[AbilityName] = "PartyPull"
+    name: AbilityName = "PartyPull"
     triggers: tuple[type[GameEvent], ...] = (TurnStartEvent,)
 
     @override
@@ -113,8 +114,9 @@ class ModifierPartySelfBoost(RacerModifier, RollModificationMixin):
             )
 
 
+@dataclass
 class AbilityPartyBoost(Ability, LifecycleManagedMixin):
-    name: ClassVar[AbilityName] = "PartyBoost"
+    name: AbilityName = "PartyBoost"
     triggers: tuple[type[GameEvent], ...] = ()
 
     @override
