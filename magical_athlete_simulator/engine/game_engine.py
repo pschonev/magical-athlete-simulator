@@ -188,7 +188,15 @@ class GameEngine:
             self.current_processing_event
             and self.current_processing_event.event.phase == event.phase
         ):
-            new_depth = self.current_processing_event.depth + 1
+            # FIX: System events (Priority 0) are treated as continuations of the current
+            # state change rather than nested reactions. By keeping depth constant,
+            # we ensure that side effects from a chain of system moves (e.g. MoveDeltaTile)
+            # are resolved in chronological order (by Serial) instead of LIFO (by Depth).
+            if self.current_processing_event.priority == 0:
+                new_depth = self.current_processing_event.depth
+            else:
+                new_depth = self.current_processing_event.depth + 1
+
         else:
             new_depth = 0
 
@@ -200,6 +208,8 @@ class GameEngine:
             event,
             mode=self.state.rules.timing_mode,
         )
+        msg = f"{sched}"
+        self.log_debug(msg)
         heapq.heappush(self.state.queue, sched)
 
         if (

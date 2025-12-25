@@ -6,6 +6,7 @@ from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
     AbilityTriggeredEventOrSkipped,
     GameEvent,
+    Phase,
     PostMoveEvent,
     PostWarpEvent,
     PreMoveEvent,
@@ -51,7 +52,7 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
             AbilityTriggeredEvent(
                 self.owner_idx,
                 source=self.name,
-                phase=event.phase,
+                phase=Phase.SYSTEM,
             ),
         )
         # Redirect to the previous tile

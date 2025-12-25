@@ -29,7 +29,6 @@ class AbilityTrample(Ability):
         if not isinstance(event, PassingEvent):
             return "skip_trigger"
 
-        #
         if event.passing_racer_idx != owner_idx:
             return "skip_trigger"
 
