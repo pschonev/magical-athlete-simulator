@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, override
 
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import (
-    AbilityTriggeredEventEmission,
+    AbilityTriggeredEventOrSkipped,
     GameEvent,
     PassingEvent,
 )
@@ -25,7 +25,7 @@ class AbilityBananaTrip(Ability):
         event: GameEvent,
         owner_idx: int,
         engine: GameEngine,
-    ) -> AbilityTriggeredEventEmission:
+    ) -> AbilityTriggeredEventOrSkipped:
         if not isinstance(event, PassingEvent):
             return "skip_trigger"
 

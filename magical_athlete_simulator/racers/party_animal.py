@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, assert_never, override
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
-    AbilityTriggeredEventEmission,
+    AbilityTriggeredEventOrSkipped,
     GameEvent,
     MoveDistanceQuery,
     Phase,
@@ -37,7 +37,7 @@ class AbilityPartyPull(Ability):
         event: GameEvent,
         owner_idx: int,
         engine: GameEngine,
-    ) -> AbilityTriggeredEventEmission:
+    ) -> AbilityTriggeredEventOrSkipped:
         if not isinstance(event, TurnStartEvent):
             return "skip_trigger"
 

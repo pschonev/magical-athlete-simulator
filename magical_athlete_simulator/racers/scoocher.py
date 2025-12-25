@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, override
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
-    AbilityTriggeredEventEmission,
+    AbilityTriggeredEventOrSkipped,
     GameEvent,
     HasTargetRacer,
 )
@@ -27,7 +27,7 @@ class AbilityScoochStep(Ability):
         event: GameEvent,
         owner_idx: int,
         engine: GameEngine,
-    ) -> AbilityTriggeredEventEmission:
+    ) -> AbilityTriggeredEventOrSkipped:
         if not isinstance(event, AbilityTriggeredEvent):
             return "skip_trigger"
 

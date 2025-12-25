@@ -5,7 +5,7 @@ from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.agent import BooleanDecision, DecisionReason
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
-    AbilityTriggeredEventEmission,
+    AbilityTriggeredEventOrSkipped,
     GameEvent,
     RollModificationWindowEvent,
 )
@@ -27,7 +27,7 @@ class AbilityMagicalReroll(Ability):
         event: GameEvent,
         owner_idx: int,
         engine: GameEngine,
-    ) -> AbilityTriggeredEventEmission:
+    ) -> AbilityTriggeredEventOrSkipped:
         if not isinstance(event, RollModificationWindowEvent):
             return "skip_trigger"
 

@@ -204,4 +204,4 @@ class ScheduledEvent:
         return self.sort_key < other.sort_key
 
 
-AbilityTriggeredEventEmission = Literal["skip_trigger"] | AbilityTriggeredEvent
+AbilityTriggeredEventOrSkipped = Literal["skip_trigger"] | AbilityTriggeredEvent

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
-    AbilityTriggeredEventEmission,
+    AbilityTriggeredEventOrSkipped,
 )
 
 if TYPE_CHECKING:
@@ -52,7 +52,7 @@ class Ability(ABC):
         event: GameEvent,
         owner_idx: int,
         engine: GameEngine,
-    ) -> AbilityTriggeredEventEmission:
+    ) -> AbilityTriggeredEventOrSkipped:
         """Core logic. Returns True if the ability actually fired/affected game state,
         False if conditions weren't met (e.g. wrong target).
         """

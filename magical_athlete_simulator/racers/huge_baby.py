@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, override
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
-    AbilityTriggeredEventEmission,
+    AbilityTriggeredEventOrSkipped,
     GameEvent,
     PostMoveEvent,
     PostWarpEvent,
@@ -95,7 +95,7 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
         event: GameEvent,
         owner_idx: int,
         engine: GameEngine,
-    ) -> AbilityTriggeredEventEmission:
+    ) -> AbilityTriggeredEventOrSkipped:
         # --- DEPARTURE LOGIC: Triggered BEFORE the move happens ---
         if isinstance(event, (PreMoveEvent, PreWarpEvent)):
             if event.target_racer_idx != owner_idx:

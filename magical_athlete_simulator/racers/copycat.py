@@ -5,7 +5,7 @@ from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.agent import DecisionReason, SelectionDecision
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
-    AbilityTriggeredEventEmission,
+    AbilityTriggeredEventOrSkipped,
     GameEvent,
     PostMoveEvent,
     PostWarpEvent,
@@ -32,7 +32,7 @@ class AbilityCopyLead(Ability):
         event: GameEvent,
         owner_idx: int,
         engine: GameEngine,
-    ) -> AbilityTriggeredEventEmission:
+    ) -> AbilityTriggeredEventOrSkipped:
         if not isinstance(event, (TurnStartEvent, PostWarpEvent, PostMoveEvent)):
             return "skip_trigger"
 
