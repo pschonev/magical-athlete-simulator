@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, assert_never, override
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
-    AbilityTriggeredEventOrSkipped,
     GameEvent,
     MoveDistanceQuery,
     Phase,
@@ -19,7 +18,7 @@ from magical_athlete_simulator.engine.abilities import (
     add_racer_modifier,
     remove_racer_modifier,
 )
-from magical_athlete_simulator.engine.movement import push_move
+from magical_athlete_simulator.engine.movement import push_simultaneous_move
 
 if TYPE_CHECKING:
     from magical_athlete_simulator.core.types import AbilityName, ModifierName
@@ -27,53 +26,40 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class AbilityPartyPull(Ability):
+class PartyAnimalPull(Ability):
     name: AbilityName = "PartyPull"
-    triggers: tuple[type[GameEvent], ...] = (TurnStartEvent,)
+    triggers: tuple[type[GameEvent], ...] = (
+        TurnStartEvent,
+    )  # Triggers before main move (PRE_MAIN)
 
     @override
-    def execute(
-        self,
-        event: GameEvent,
-        owner_idx: int,
-        engine: GameEngine,
-    ) -> AbilityTriggeredEventOrSkipped:
-        if not isinstance(event, TurnStartEvent):
+    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine):
+        # Only trigger on Party Animal's own turn start
+        if not isinstance(event, TurnStartEvent) or owner_idx != event.target_racer_idx:
             return "skip_trigger"
 
-        if event.target_racer_idx != owner_idx:
+        pa = engine.get_racer(owner_idx)
+        if not pa.active:
             return "skip_trigger"
 
-        party_animal = engine.get_racer(owner_idx)
-        any_affected = False
-
-        # CHANGED: We only log and return True if we actually queue a move.
+        moves_to_make: list[tuple[int, int]] = []
         for r in engine.state.racers:
-            if r.idx == owner_idx or r.finished:
+            if r.idx == owner_idx or (not r.active) or (r.position == pa.position):
                 continue
 
-            direction = 0
-            if r.position < party_animal.position:
-                direction = 1
-            elif r.position > party_animal.position:
-                direction = -1
+            direction = 1 if r.position < pa.position else -1
+            moves_to_make.append((r.idx, direction))
 
-            if direction != 0:
-                push_move(
-                    engine,
-                    direction,
-                    event.phase,
-                    moved_racer_idx=r.idx,
-                    source=self.name,
-                    responsible_racer_idx=owner_idx,
-                )
-                any_affected = True
+        if moves_to_make:
+            push_simultaneous_move(
+                engine,
+                moves=moves_to_make,
+                phase=event.phase,
+                source=self.name,
+                responsible_racer_idx=owner_idx,
+                emit_ability_triggered="after_resolution",
+            )
 
-        if any_affected:
-            engine.log_info(f"{self.name}: Pulling everyone closer!")
-            return AbilityTriggeredEvent(owner_idx, self.name, event.phase)
-
-        # If nobody moved (e.g. everyone is on the same tile), ability did not "happen".
         return "skip_trigger"
 
 

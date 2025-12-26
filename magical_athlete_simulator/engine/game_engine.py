@@ -310,7 +310,6 @@ class GameEngine:
                 handle_move_cmd(self, event)
             case SimultaneousMoveCmdEvent():
                 handle_simultaneous_move_cmd(self, event)
-
             case WarpCmdEvent():
                 handle_warp_cmd(self, event)
             case SimultaneousWarpCmdEvent():

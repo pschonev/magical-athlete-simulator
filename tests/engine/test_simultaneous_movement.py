@@ -61,9 +61,11 @@ def test_romantic_party_animal_simultaneous_arrival(scenario: type[GameScenario]
     game.run_turn()
     
     romantic = game.get_racer(1)
+    pa = game.get_racer(0)
     
     # Initial 5 -> Pull to 6.
-    # If Triggered Twice: 6 + 2 + 2 = 10.
-    # If Triggered Once: 6 + 2 = 8.
+    # Triggers twice: 6 + 2 + 2 = 10
+    # Party Animal is on 10, so it triggers again -> 12
     
-    assert romantic.position == 10, f"Romantic should trigger twice (simultaneous arrival), ended at {romantic.position}"
+    assert romantic.position == 12, f"Romantic should trigger twice (simultaneous arrival), ended at {romantic.position}"
+    assert pa.position == 11
