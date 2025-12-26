@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, override
 
 from magical_athlete_simulator.core.abilities import Ability
 from magical_athlete_simulator.core.events import GameEvent, Phase, TurnStartEvent
-from magical_athlete_simulator.engine.movement import push_warp
+from magical_athlete_simulator.engine.movement import push_simultaneous_warp
 
 if TYPE_CHECKING:
     from magical_athlete_simulator.core.state import RacerState
@@ -47,25 +47,18 @@ class FlipFlopSwap(Ability):
         ff_pos = ff.position
         target_pos = target.position
 
-        # TODO: Change from sequential to simultaneous warp
-        push_warp(
+        push_simultaneous_warp(
             engine,
-            target=target_pos,
+            warps=[
+                (owner_idx, target_pos),  # Flip Flop -> Target's old pos
+                (target.idx, ff_pos),  # Target -> Flip Flop's old pos
+            ],
             phase=Phase.PRE_MAIN,
-            warped_racer_idx=owner_idx,
             source=self.name,
             responsible_racer_idx=owner_idx,
             emit_ability_triggered="after_resolution",
         )
-        push_warp(
-            engine,
-            target=ff_pos,
-            phase=Phase.PRE_MAIN,
-            warped_racer_idx=target.idx,
-            source=self.name,
-            responsible_racer_idx=owner_idx,
-            emit_ability_triggered="after_resolution",
-        )
+
         # FlipFlop skips main move when using his ability
         ff.main_move_consumed = True
 

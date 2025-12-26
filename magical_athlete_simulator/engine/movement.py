@@ -10,6 +10,7 @@ from magical_athlete_simulator.core.events import (
     PostWarpEvent,
     PreMoveEvent,
     PreWarpEvent,
+    SimultaneousWarpCmdEvent,
     TripCmdEvent,
     WarpCmdEvent,
 )
@@ -126,6 +127,58 @@ def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
     )
 
 
+def _resolve_warp_destination(
+    engine: GameEngine,
+    *,
+    event: WarpCmdEvent,
+) -> int:
+    resolved = engine.state.board.resolve_position(
+        event.target_tile,
+        event.target_racer_idx,
+        engine,
+        event=event,
+    )
+    if resolved < 0:
+        engine.log_info(
+            f"Attempted to warp to {resolved}. Instead moving to starting tile (0).",
+        )
+        resolved = 0
+    return resolved
+
+
+def _finalize_committed_warp(
+    engine: GameEngine,
+    event: WarpCmdEvent,
+    *,
+    start_tile: int,
+    end_tile: int,
+):
+    racer = engine.get_racer(event.target_racer_idx)
+
+    engine.log_info(f"Warp: {racer.repr} -> {end_tile} ({event.source})")
+    racer.position = end_tile
+    if check_finish(engine, racer):
+        return
+
+    engine.state.board.trigger_on_land(
+        end_tile,
+        event.target_racer_idx,
+        event.phase,
+        engine,
+    )
+
+    engine.publish_to_subscribers(
+        PostWarpEvent(
+            target_racer_idx=event.target_racer_idx,
+            start_tile=start_tile,
+            end_tile=end_tile,
+            source=event.source,
+            phase=event.phase,
+            responsible_racer_idx=event.responsible_racer_idx,
+        ),
+    )
+
+
 def handle_warp_cmd(engine: GameEngine, evt: WarpCmdEvent):
     racer = engine.get_racer(evt.target_racer_idx)
     if not racer.active:
@@ -150,18 +203,10 @@ def handle_warp_cmd(engine: GameEngine, evt: WarpCmdEvent):
     )
 
     # 2. Resolve spatial modifiers on the target
-    resolved = engine.state.board.resolve_position(
-        evt.target_tile,
-        evt.target_racer_idx,
+    resolved = _resolve_warp_destination(
         engine,
         event=evt,
-    )  # [file:1]
-
-    if resolved < 0:
-        engine.log_info(
-            f"Attempted to warp to {resolved}. Instead moving to starting tile (0).",
-        )
-        resolved = 0
+    )
 
     if resolved == start:
         return
@@ -171,31 +216,82 @@ def handle_warp_cmd(engine: GameEngine, evt: WarpCmdEvent):
             event=AbilityTriggeredEvent.from_event(evt),
         )
 
-    engine.log_info(f"Warp: {racer.repr} -> {resolved} ({evt.source})")  # [file:1]
-    racer.position = resolved
-
-    if check_finish(engine, racer):
-        return
-
-    # 3. Board hooks on landing
-    engine.state.board.trigger_on_land(
-        resolved,
-        racer.idx,
-        evt.phase,
+    _finalize_committed_warp(
         engine,
-    )  # [file:1]
+        event=evt,
+        start_tile=start,
+        end_tile=resolved,
+    )
 
-    # 4. Arrival hook
-    engine.publish_to_subscribers(
-        PostWarpEvent(
-            target_racer_idx=evt.target_racer_idx,
-            start_tile=start,
-            end_tile=resolved,
+
+def handle_simultaneous_warp_cmd(engine: GameEngine, evt: SimultaneousWarpCmdEvent):
+    # 0. Preparation: Gather valid warps
+    # We store the plan as: (original_warp_event, start_tile, resolved_end_tile)
+    # We create temporary "single" WarpCmdEvents to reuse your existing helpers easily.
+    planned_warps: list[tuple[WarpCmdEvent, int, int]] = []
+
+    for racer_idx, target_tile in evt.warps:
+        racer = engine.get_racer(racer_idx)
+        if not racer.active:
+            continue
+
+        start = racer.position
+        if start == target_tile:
+            continue
+
+        # Create a transient single event to pass to helpers/hooks
+        # (This avoids duplicating logic for PreWarpEvent creation etc.)
+        single_warp_evt = WarpCmdEvent(
+            target_racer_idx=racer_idx,
+            target_tile=target_tile,
             source=evt.source,
             phase=evt.phase,
+            emit_ability_triggered="never",  # We handle the batch trigger separately
             responsible_racer_idx=evt.responsible_racer_idx,
-        ),
-    )
+        )
+
+        # 1. Departure hook (PreWarpEvent)
+        engine.publish_to_subscribers(
+            PreWarpEvent(
+                target_racer_idx=racer_idx,
+                start_tile=start,
+                target_tile=target_tile,
+                source=evt.source,
+                phase=evt.phase,
+                responsible_racer_idx=evt.responsible_racer_idx,
+            ),
+        )
+
+        # 2. Resolve destination
+        resolved = _resolve_warp_destination(engine, event=single_warp_evt)
+
+        # If resolution results in no movement (e.g. bounce back to start), skip
+        if resolved == start:
+            continue
+
+        planned_warps.append((single_warp_evt, start, resolved))
+
+    if not planned_warps:
+        return
+
+    # Trigger the ability itself once for the whole batch (if configured)
+    if evt.emit_ability_triggered == "after_resolution":
+        engine.push_event(AbilityTriggeredEvent.from_event(evt))
+
+    # 3. ATOMIC COMMIT: Update all positions simultaneously
+    for single_evt, _, resolved in planned_warps:
+        racer = engine.get_racer(single_evt.target_racer_idx)
+        racer.position = resolved
+
+    # 4. Finalize: Run landing hooks and arrival events
+    # Now that the board state is "finalized" for everyone, listeners will see the correct state.
+    for single_evt, start, resolved in planned_warps:
+        _finalize_committed_warp(
+            engine,
+            event=single_evt,
+            start_tile=start,
+            end_tile=resolved,
+        )
 
 
 def handle_trip_cmd(engine: GameEngine, evt: TripCmdEvent):
@@ -251,6 +347,26 @@ def push_warp(
         WarpCmdEvent(
             target_racer_idx=warped_racer_idx,
             target_tile=target,
+            source=source,
+            phase=phase,
+            emit_ability_triggered=emit_ability_triggered,
+            responsible_racer_idx=responsible_racer_idx,
+        ),
+    )
+
+
+def push_simultaneous_warp(
+    engine: GameEngine,
+    warps: list[tuple[int, int]],  # List of (racer_idx, target_tile)
+    phase: Phase,
+    *,
+    source: Source,
+    responsible_racer_idx: int | None,
+    emit_ability_triggered: EventTriggerMode = "after_resolution",
+):
+    engine.push_event(
+        SimultaneousWarpCmdEvent(
+            warps=warps,
             source=source,
             phase=phase,
             emit_ability_triggered=emit_ability_triggered,

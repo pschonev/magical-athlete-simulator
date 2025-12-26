@@ -2,7 +2,7 @@ from abc import ABC
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import cached_property
-from typing import TYPE_CHECKING, Annotated, Literal, Self, get_args
+from typing import TYPE_CHECKING, Annotated, Literal, Self, Sequence, get_args
 
 from magical_athlete_simulator.core.types import AbilityName, ModifierName, SystemSource
 
@@ -107,6 +107,12 @@ class MoveCmdEvent(GameEvent, EmitsAbilityTriggeredEvent, HasTargetRacer):
 @dataclass(frozen=True, kw_only=True)
 class WarpCmdEvent(GameEvent, EmitsAbilityTriggeredEvent, HasTargetRacer):
     target_tile: int
+    emit_ability_triggered: EventTriggerMode = "never"
+
+
+@dataclass(frozen=True, kw_only=True)
+class SimultaneousWarpCmdEvent(GameEvent, EmitsAbilityTriggeredEvent):
+    warps: Sequence[tuple[int, int]]  # (racer_idx, target_tile)
     emit_ability_triggered: EventTriggerMode = "never"
 
 
