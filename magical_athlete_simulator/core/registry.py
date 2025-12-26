@@ -13,5 +13,6 @@ RACER_ABILITIES: dict[RacerName, set[AbilityName]] = {
     "HugeBaby": {"HugeBabyPush"},
     "Magician": {"MagicalReroll"},
     "PartyAnimal": {"PartyPull", "PartyBoost"},
+    "Romantic": {"RomanticMove"},
     "Scoocher": {"ScoochStep"},
 }

@@ -15,6 +15,7 @@ from magical_athlete_simulator.core.events import (
     ResolveMainMoveEvent,
     RollModificationWindowEvent,
     ScheduledEvent,
+    SimultaneousMoveCmdEvent,
     SimultaneousWarpCmdEvent,
     TripCmdEvent,
     TurnStartEvent,
@@ -27,6 +28,7 @@ from magical_athlete_simulator.core.registry import RACER_ABILITIES
 from magical_athlete_simulator.engine.logging import ContextFilter
 from magical_athlete_simulator.engine.movement import (
     handle_move_cmd,
+    handle_simultaneous_move_cmd,
     handle_simultaneous_warp_cmd,
     handle_trip_cmd,
     handle_warp_cmd,
@@ -306,6 +308,8 @@ class GameEngine:
                 handle_trip_cmd(self, event)
             case MoveCmdEvent():
                 handle_move_cmd(self, event)
+            case SimultaneousMoveCmdEvent():
+                handle_simultaneous_move_cmd(self, event)
 
             case WarpCmdEvent():
                 handle_warp_cmd(self, event)

@@ -2,11 +2,13 @@ from abc import ABC
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import cached_property
-from typing import TYPE_CHECKING, Annotated, Literal, Self, Sequence, get_args
+from typing import TYPE_CHECKING, Annotated, Literal, Self, get_args
 
 from magical_athlete_simulator.core.types import AbilityName, ModifierName, SystemSource
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from magical_athlete_simulator.core.state import TimingMode
     from magical_athlete_simulator.core.types import Source
 
@@ -101,6 +103,16 @@ class PassingEvent(GameEvent):
 @dataclass(frozen=True, kw_only=True)
 class MoveCmdEvent(GameEvent, EmitsAbilityTriggeredEvent, HasTargetRacer):
     distance: int
+    emit_ability_triggered: EventTriggerMode = "never"
+
+
+@dataclass(frozen=True, kw_only=True)
+class SimultaneousMoveCmdEvent(GameEvent, EmitsAbilityTriggeredEvent):
+    """
+    Atomically moves multiple racers.
+    """
+
+    moves: Sequence[tuple[int, int]]
     emit_ability_triggered: EventTriggerMode = "never"
 
 

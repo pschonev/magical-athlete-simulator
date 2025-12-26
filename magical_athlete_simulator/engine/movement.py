@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from magical_athlete_simulator.core.events import (
@@ -10,6 +11,7 @@ from magical_athlete_simulator.core.events import (
     PostWarpEvent,
     PreMoveEvent,
     PreWarpEvent,
+    SimultaneousMoveCmdEvent,
     SimultaneousWarpCmdEvent,
     TripCmdEvent,
     WarpCmdEvent,
@@ -21,38 +23,31 @@ if TYPE_CHECKING:
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
-def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
-    racer = engine.get_racer(evt.target_racer_idx)
-    if not racer.active:
-        return
-
-    # Moving 0 is not moving at all
-    if evt.distance == 0:
-        return
-
-    start = racer.position
-    distance = evt.distance
-
-    # 1. Departure hook
+def _publish_pre_move(engine: GameEngine, evt: MoveCmdEvent):
     engine.publish_to_subscribers(
         PreMoveEvent(
             target_racer_idx=evt.target_racer_idx,
-            start_tile=start,
-            distance=distance,
+            start_tile=engine.get_racer(evt.target_racer_idx).position,
+            distance=evt.distance,
             source=evt.source,
             phase=evt.phase,
             responsible_racer_idx=evt.responsible_racer_idx,
         ),
     )
 
-    # 2. Resolve spatial modifiers (Huge Baby etc.)
-    intended = start + distance
+
+def _resolve_move_path(engine: GameEngine, evt: MoveCmdEvent) -> int:
+    racer = engine.get_racer(evt.target_racer_idx)
+    start = racer.position
+    intended = start + evt.distance
+
+    # Pass the event object itself to the board logic
     end = engine.state.board.resolve_position(
         intended,
         evt.target_racer_idx,
         engine,
         event=evt,
-    )  # [file:1]
+    )
 
     if end < 0:
         engine.log_info(
@@ -60,39 +55,31 @@ def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
         )
         end = 0
 
-    # If you get fully blocked back to your start, treat as “no movement”
-    if standing_still := (end == start):
-        return
+    return end
 
-    if evt.emit_ability_triggered == "after_resolution":
-        ability_triggered = (
-            not standing_still
-        ) or engine.state.rules.count_0_moves_for_ability_triggered
 
-        if ability_triggered:
-            engine.push_event(
-                event=AbilityTriggeredEvent.from_event(evt),
-            )
+def _process_passing_and_logs(
+    engine: GameEngine,
+    evt: MoveCmdEvent,
+    start_tile: int,
+    end_tile: int,
+):
+    racer = engine.get_racer(evt.target_racer_idx)
+    engine.log_info(f"Move: {racer.repr} {start_tile}->{end_tile} ({evt.source})")
 
-    engine.log_info(f"Move: {racer.repr} {start}->{end} ({evt.source})")  # [file:1]
-
-    # 3. Passing events
-    if distance != 0:
-        # Determine step direction: 1 for forward, -1 for backward
-        step = 1 if distance > 0 else -1
-
-        current = start + step
-        while current != end:
-            # Check bounds just in case
+    if evt.distance != 0:
+        step = 1 if evt.distance > 0 else -1
+        current = start_tile + step
+        while current != end_tile:
             if 0 <= current < engine.state.board.length:
                 victims = engine.get_racers_at_position(
                     tile_idx=current,
-                    except_racer_idx=racer.idx,
+                    except_racer_idx=evt.target_racer_idx,
                 )
                 for v in victims:
                     engine.push_event(
                         PassingEvent(
-                            responsible_racer_idx=racer.idx,
+                            responsible_racer_idx=evt.target_racer_idx,
                             target_racer_idx=v.idx,
                             phase=evt.phase,
                             source=evt.source,
@@ -100,31 +87,119 @@ def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
                         ),
                     )
             current += step
-            # Safety break if we overshoot (shouldn't happen with step logic but good practice)
-            if (step > 0 and current > end) or (step < 0 and current < end):
+            # Safety break
+            if (step > 0 and current > end_tile) or (step < 0 and current < end_tile):
                 break
 
-    # 4. Commit position
-    racer.position = end
 
-    # Finish check as in your current engine
-    if check_finish(engine, racer):  # may log finish + mark race_over, etc. [file:1]
+def _finalize_committed_move(
+    engine: GameEngine,
+    evt: MoveCmdEvent,
+    start_tile: int,
+    end_tile: int,
+):
+    racer = engine.get_racer(evt.target_racer_idx)
+
+    if check_finish(engine, racer):
         return
 
-    # 5. Board “on land” hooks (Trip, VP, MoveDelta, etc.)
-    engine.state.board.trigger_on_land(end, racer.idx, evt.phase, engine)  # [file:1]
+    # Board “on land” hooks
+    engine.state.board.trigger_on_land(
+        end_tile, evt.target_racer_idx, evt.phase, engine
+    )
 
-    # 6. Arrival hook
+    # Arrival hook
     engine.publish_to_subscribers(
         PostMoveEvent(
             target_racer_idx=evt.target_racer_idx,
-            start_tile=start,
-            end_tile=end,
+            start_tile=start_tile,
+            end_tile=end_tile,
             source=evt.source,
             phase=evt.phase,
             responsible_racer_idx=evt.responsible_racer_idx,
         ),
     )
+
+
+def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
+    racer = engine.get_racer(evt.target_racer_idx)
+    if not racer.active:
+        return
+    if evt.distance == 0:
+        return
+
+    start = racer.position
+
+    _publish_pre_move(engine, evt)
+
+    end = _resolve_move_path(engine, evt)
+
+    if end == start:
+        return
+
+    if evt.emit_ability_triggered == "after_resolution":
+        triggered = (
+            end != start
+        ) or engine.state.rules.count_0_moves_for_ability_triggered
+        if triggered:
+            engine.push_event(AbilityTriggeredEvent.from_event(evt))
+
+    _process_passing_and_logs(engine, evt, start, end)
+
+    racer.position = end
+
+    _finalize_committed_move(engine, evt, start, end)
+
+
+def handle_simultaneous_move_cmd(engine: GameEngine, evt: SimultaneousMoveCmdEvent):
+    planned: list[tuple[MoveCmdEvent, int, int]] = []
+
+    for racer_idx, distance in evt.moves:
+        if distance == 0:
+            continue
+        racer = engine.get_racer(racer_idx)
+        if not racer.active:
+            continue
+
+        # Create a transient event for this sub-move
+        sub_evt = MoveCmdEvent(
+            target_racer_idx=racer_idx,
+            distance=distance,
+            source=evt.source,
+            phase=evt.phase,
+            emit_ability_triggered="never",  # Batch handles the main trigger
+            responsible_racer_idx=evt.responsible_racer_idx,
+        )
+
+        start = racer.position
+
+        _publish_pre_move(engine, sub_evt)
+        end = _resolve_move_path(engine, sub_evt)
+
+        if end == start:
+            continue
+
+        planned.append((sub_evt, start, end))
+
+    if not planned:
+        return
+
+    if evt.emit_ability_triggered == "after_resolution":
+        engine.push_event(AbilityTriggeredEvent.from_event(evt))
+
+    for sub_evt, start, end in planned:
+        _process_passing_and_logs(engine, sub_evt, start, end)
+
+    for sub_evt, _, end in planned:
+        engine.get_racer(sub_evt.target_racer_idx).position = end
+
+    for sub_evt, start, end in planned:
+        _finalize_committed_move(engine, sub_evt, start, end)
+
+
+######
+# WARPING
+######
 
 
 def _resolve_warp_destination(
@@ -311,6 +386,11 @@ def handle_trip_cmd(engine: GameEngine, evt: TripCmdEvent):
         )
 
 
+####
+# Helpers
+####
+
+
 def push_move(
     engine: GameEngine,
     distance: int,
@@ -329,6 +409,26 @@ def push_move(
             phase=phase,
             emit_ability_triggered=emit_ability_triggered,
             responsible_racer_idx=responsible_racer_idx,
+        ),
+    )
+
+
+def push_simultaneous_move(
+    engine: GameEngine,
+    moves: Sequence[tuple[int, int]],
+    phase: Phase,
+    *,
+    source: Source,
+    responsible_racer_idx: int | None,
+    emit_ability_triggered: EventTriggerMode = "after_resolution",
+):
+    engine.push_event(
+        SimultaneousMoveCmdEvent(
+            moves=moves,
+            source=source,
+            phase=phase,
+            responsible_racer_idx=responsible_racer_idx,
+            emit_ability_triggered=emit_ability_triggered,
         ),
     )
 

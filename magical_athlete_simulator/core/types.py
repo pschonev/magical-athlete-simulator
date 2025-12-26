@@ -8,6 +8,7 @@ RacerName = Literal[
     "FlipFlop",
     "Gunk",
     "HugeBaby",
+    "Romantic",
     "Scoocher",
     "PartyAnimal",
     "Magician",
@@ -23,6 +24,7 @@ AbilityName = Literal[
     "MagicalReroll",
     "PartyPull",
     "PartyBoost",
+    "RomanticMove",
     "ScoochStep",
 ]
 
