@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from magical_athlete_simulator.core.events import (
@@ -19,6 +18,8 @@ from magical_athlete_simulator.core.events import (
 from magical_athlete_simulator.engine.flow import check_finish
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from magical_athlete_simulator.core.types import Source
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
@@ -105,7 +106,10 @@ def _finalize_committed_move(
 
     # Board “on land” hooks
     engine.state.board.trigger_on_land(
-        end_tile, evt.target_racer_idx, evt.phase, engine
+        end_tile,
+        evt.target_racer_idx,
+        evt.phase,
+        engine,
     )
 
     # Arrival hook

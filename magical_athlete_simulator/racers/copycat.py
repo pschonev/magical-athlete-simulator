@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, override
 
 from magical_athlete_simulator.core.abilities import Ability
-from magical_athlete_simulator.core.agent import DecisionReason, SelectionDecision
+from magical_athlete_simulator.core.agent import Agent, SelectionDecisionContext
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
     AbilityTriggeredEventOrSkipped,
@@ -32,6 +32,7 @@ class AbilityCopyLead(Ability):
         event: GameEvent,
         owner_idx: int,
         engine: GameEngine,
+        agent: Agent,
     ) -> AbilityTriggeredEventOrSkipped:
         if not isinstance(event, (TurnStartEvent, PostWarpEvent, PostMoveEvent)):
             return "skip_trigger"
@@ -55,17 +56,15 @@ class AbilityCopyLead(Ability):
 
         # 3. Ask the Agent which leader to copy
         agent = engine.get_agent(owner_idx)
-        decision_ctx = SelectionDecision(
-            game_state=engine.state,
-            source_racer_idx=owner_idx,
-            reason=DecisionReason.COPY_LEAD_TARGET,
-            options=leaders,
+
+        target = agent.make_selection_decision(
+            SelectionDecisionContext(
+                source=self,
+                game_state=engine.state,
+                source_racer_idx=owner_idx,
+                options=leaders,
+            ),
         )
-
-        selected_index = agent.make_selection_decision(decision_ctx)
-        target = leaders[selected_index]
-
-        # Avoid redundant updates
         if me.abilities == target.abilities:
             return "skip_trigger"
 
@@ -73,3 +72,11 @@ class AbilityCopyLead(Ability):
 
         engine.update_racer_abilities(owner_idx, target.abilities)
         return AbilityTriggeredEvent(owner_idx, self.name, phase=event.phase)
+
+    @override
+    def get_auto_selection_decision[RacerState](
+        self,
+        ctx: SelectionDecisionContext[RacerState],
+    ) -> RacerState:
+        # always return the first
+        return ctx.options[0]

@@ -1,47 +1,55 @@
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum, auto
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from magical_athlete_simulator.core.state import GameState, RacerState
-
-
-class DecisionReason(Enum):
-    """Specific reasons an Agent is being asked to make a decision."""
-
-    MAGICAL_REROLL = auto()
-    COPY_LEAD_TARGET = auto()
+    from magical_athlete_simulator.core.abilities import Ability
+    from magical_athlete_simulator.core.state import GameState
 
 
 @dataclass
 class DecisionContext:
-    """Base context containing the minimal state needed for a decision."""
-
+    source: Ability
     game_state: GameState
     source_racer_idx: int
-    reason: DecisionReason
 
 
 @dataclass
-class BooleanDecision(DecisionContext):
-    """A Yes/No decision (e.g., should I reroll?)."""
+class SelectionDecisionContext[T](DecisionContext):
+    options: list[T]
 
 
-@dataclass
-class SelectionDecision(DecisionContext):
-    """A generic selection from a list of options."""
+@runtime_checkable
+class Autosolvable(Protocol):
+    """Protocol for any object that can answer its own decision requests."""
 
-    options: list[RacerState]
+    def get_auto_boolean_decision(self, ctx: DecisionContext) -> bool: ...
+    def get_auto_selection_decision(self, ctx: DecisionContext) -> int: ...
 
 
-class Agent(ABC):
-    """Base interface for decision making entities."""
+class DefaultAutosolvableMixin:
+    """
+    Mixin that provides safe, 'dumb' default behavior.
+    Inherit from this in your Ability class to make it Autosolvable.
+    """
 
-    @abstractmethod
-    def make_boolean_decision(self, ctx: BooleanDecision) -> bool:
-        pass
+    def get_auto_boolean_decision(self, ctx: DecisionContext) -> bool:
+        # Default: Always say No to optional things
+        _ = ctx
+        return False
 
-    @abstractmethod
-    def make_selection_decision(self, ctx: SelectionDecision) -> int:
-        """Return the index of the selected option."""
+    def get_auto_selection_decision[T](self, ctx: SelectionDecisionContext[T]) -> T:
+        # Default: Always pick the first option
+        _ = ctx
+        return ctx.options[0]
+
+
+class Agent:
+    """Base Agent that knows how to handle context but not specific rules."""
+
+    def make_boolean_decision(self, ctx: DecisionContext) -> bool:
+        _ = ctx
+        return NotImplemented
+
+    def make_selection_decision[T](self, ctx: SelectionDecisionContext[T]) -> T:
+        _ = ctx
+        return NotImplemented

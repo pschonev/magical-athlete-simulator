@@ -20,6 +20,7 @@ from magical_athlete_simulator.core.modifiers import SpaceModifier
 from magical_athlete_simulator.engine.movement import push_warp
 
 if TYPE_CHECKING:
+    from magical_athlete_simulator.core.agent import Agent
     from magical_athlete_simulator.core.types import AbilityName, ModifierName
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
@@ -96,6 +97,7 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
         event: GameEvent,
         owner_idx: int,
         engine: GameEngine,
+        agent: Agent,
     ) -> AbilityTriggeredEventOrSkipped:
         # --- DEPARTURE LOGIC: Triggered BEFORE the move happens ---
         if isinstance(event, (PreMoveEvent, PreWarpEvent)):

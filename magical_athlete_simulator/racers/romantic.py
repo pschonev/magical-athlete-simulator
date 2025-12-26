@@ -10,6 +10,7 @@ from magical_athlete_simulator.core.events import (
 from magical_athlete_simulator.engine.movement import push_move
 
 if TYPE_CHECKING:
+    from magical_athlete_simulator.core.agent import Agent
     from magical_athlete_simulator.core.types import AbilityName
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
@@ -20,7 +21,13 @@ class RomanticMove(Ability):
     triggers: tuple[type[GameEvent], ...] = (PostMoveEvent, PostWarpEvent)
 
     @override
-    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine):
+    def execute(
+        self,
+        event: GameEvent,
+        owner_idx: int,
+        engine: GameEngine,
+        agent: Agent,
+    ):
         if not isinstance(event, (PostMoveEvent, PostWarpEvent)):
             return "skip_trigger"
 

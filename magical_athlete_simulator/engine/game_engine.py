@@ -86,7 +86,7 @@ class GameEngine:
             self.update_racer_abilities(racer.idx, initial)
 
         for racer in self.state.racers:
-            _ = self.agents.setdefault(racer.idx, SmartAgent(self.state.board))
+            _ = self.agents.setdefault(racer.idx, SmartAgent())
 
     # --- Main Loop ---
     def run_race(self):

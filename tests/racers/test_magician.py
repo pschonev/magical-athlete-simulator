@@ -19,6 +19,8 @@ def test_magician_reroll_scoocher_interaction(scenario: type[GameScenario]):
     game.run_turn()
 
     scoocher = game.get_racer(1)
+    magician = game.get_racer(0)
+    assert magician.position == 6
     assert scoocher.position == 1
 
 def test_magician_reroll_uses_new_roll_value(scenario: type[GameScenario]):

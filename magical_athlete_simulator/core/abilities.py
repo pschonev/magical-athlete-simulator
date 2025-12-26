@@ -1,7 +1,7 @@
-from abc import ABC
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from magical_athlete_simulator.core.agent import Agent, DefaultAutosolvableMixin
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
     AbilityTriggeredEventOrSkipped,
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class Ability(ABC):
+class Ability(DefaultAutosolvableMixin):
     """Base class for all racer abilities.
     Enforces a unique name and handles automatic event emission upon execution.
     """
@@ -41,7 +41,12 @@ class Ability(ABC):
             return
 
         # 2. Execute
-        ability_triggered_event = self.execute(event, owner_idx, engine)
+        ability_triggered_event = self.execute(
+            event,
+            owner_idx,
+            engine,
+            engine.get_agent(owner_idx),
+        )
 
         # 3. Automatic Emission
         if isinstance(ability_triggered_event, AbilityTriggeredEvent):
@@ -52,9 +57,10 @@ class Ability(ABC):
         event: GameEvent,
         owner_idx: int,
         engine: GameEngine,
+        agent: Agent,
     ) -> AbilityTriggeredEventOrSkipped:
         """Core logic. Returns True if the ability actually fired/affected game state,
         False if conditions weren't met (e.g. wrong target).
         """
-        _ = event, owner_idx, engine
+        _ = event, owner_idx, engine, agent
         return "skip_trigger"

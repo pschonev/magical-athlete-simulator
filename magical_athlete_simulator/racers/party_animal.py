@@ -21,6 +21,7 @@ from magical_athlete_simulator.engine.abilities import (
 from magical_athlete_simulator.engine.movement import push_simultaneous_move
 
 if TYPE_CHECKING:
+    from magical_athlete_simulator.core.agent import Agent
     from magical_athlete_simulator.core.types import AbilityName, ModifierName
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
@@ -33,7 +34,13 @@ class PartyAnimalPull(Ability):
     )  # Triggers before main move (PRE_MAIN)
 
     @override
-    def execute(self, event: GameEvent, owner_idx: int, engine: GameEngine):
+    def execute(
+        self,
+        event: GameEvent,
+        owner_idx: int,
+        engine: GameEngine,
+        agent: Agent,
+    ):
         # Only trigger on Party Animal's own turn start
         if not isinstance(event, TurnStartEvent) or owner_idx != event.target_racer_idx:
             return "skip_trigger"
