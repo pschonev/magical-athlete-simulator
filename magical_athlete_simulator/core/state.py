@@ -65,6 +65,7 @@ class GameState:
     board: Board
     rules: GameRules = field(default_factory=GameRules)
     current_racer_idx: int = 0
+    next_turn_override: int | None = None
     roll_state: RollState = field(default_factory=RollState)
 
     queue: list[ScheduledEvent] = field(default_factory=list)

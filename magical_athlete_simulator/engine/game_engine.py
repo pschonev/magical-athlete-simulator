@@ -153,15 +153,39 @@ class GameEngine:
     def _advance_turn(self):
         if self.state.race_over:
             return
+
+        # 1. Handle Turn Override (Skipper/Genius)
+        if self.state.next_turn_override is not None:
+            next_idx = self.state.next_turn_override
+            self.state.next_turn_override = None  # Consume the override
+
+            # NOTE: We do NOT increment new_round here. Overrides are usually
+            # considered "extra" turns or interrupts within the current flow.
+            self.state.current_racer_idx = next_idx
+            self.log_info(
+                f"Turn Order Override: {self.get_racer(next_idx).repr} takes the next turn!"
+            )
+            return
+
+        # 2. Standard Clockwise Logic
         curr = self.state.current_racer_idx
         n = len(self.state.racers)
         next_idx = (curr + 1) % n
-        while not self.state.racers[next_idx].active:  # Skip finished/eliminated
+
+        # Check for active racers
+        start_search = next_idx
+        while not self.state.racers[next_idx].active:
             next_idx = (next_idx + 1) % n
-            if next_idx == curr:
-                break
+            # If we looped all the way back to the start search, everyone is dead/finished
+            if next_idx == start_search:
+                self.state.race_over = True  # Everyone is finished
+                return
+
+        # 3. Detect New Round (Wrap-around)
+        # We only increment the round counter if we naturally wrap from high index to low index
         if next_idx < curr:
             self.log_context.new_round()
+
         self.state.current_racer_idx = next_idx
 
     # --- Event Management ---
@@ -321,6 +345,7 @@ class GameEngine:
                 handle_perform_main_roll(self, event)
 
             case ResolveMainMoveEvent():
+                self.publish_to_subscribers(event)
                 resolve_main_move(self, event)
 
             case _:

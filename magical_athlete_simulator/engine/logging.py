@@ -102,7 +102,7 @@ class GameLogHighlighter(Highlighter):
 
 def configure_logging() -> None:
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     handler = RichHandler(
         markup=True,
         show_path=False,
