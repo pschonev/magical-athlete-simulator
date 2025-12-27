@@ -58,8 +58,9 @@ class AbilityMastermindPredict(Ability, DefaultAutosolvableMixin):
                 # Store State
                 self.prediction = target_racer.idx
 
+                owner = engine.get_racer(owner_idx)
                 engine.log_info(
-                    f"Mastermind predicts {target_racer.name} will win the race!",
+                    f"{owner.repr} predicts {target_racer.name} will win the race!",
                 )
 
                 return AbilityTriggeredEvent(
