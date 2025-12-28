@@ -1,13 +1,20 @@
 [project]
-name = "magical-athlete-simulator"
+name = "magical-athlete-workspace"
 version = "0.1.0"
-description = "Add your description here"
+description = "A workspace for Magical Athlete simulation"
 readme = "README.md"
-requires-python = ">=3.14.2"
-dependencies = ["rich>=14.2.0"]
+requires-python = ">=3.14"
+dependencies = ["magical-athlete-simulator"]
+
+[tool.uv.workspace]
+members = ["packages/magical-athlete-simulator", "apps/frontend"]
+
+[tool.uv.sources]
+magical-athlete-simulator = { workspace = true }
 
 [dependency-groups]
-dev = ["pytest>=9.0.2"]
+dev = ["pytest>=9.0.2", "ruff==0.8.4", "basedpyright==1.23.0"]
+
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -25,10 +32,23 @@ ignore = [
 ]
 
 [tool.ruff]
-exclude = ["tests"]
+exclude = ["packages/magical-athlete-simulator/tests"]
 
 [tool.basedpyright]
+include = [
+    "packages/magical-athlete-simulator/src",
+    "packages/magical-athlete-simulator/tests",
+]
+executionEnvironments = [
+    { root = "packages/magical-athlete-simulator/src" },
+    { root = "packages/magical-athlete-simulator/tests" },
+]
 reportImportCycles = "none"
 reportAny = "none"
 reportExplicitAny = "none"
 reportUnusedCallResult = "none"
+reportMissingTypeStubs = "none"
+
+[tool.pytest.ini_options]
+pythonpath = ["packages/magical-athlete-simulator/tests"]
+testpaths = ["packages/magical-athlete-simulator/tests"]

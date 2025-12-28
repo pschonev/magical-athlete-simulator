@@ -1,0 +1,11 @@
+[project]
+name = "magical-athlete-frontend"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "marimo[lsp]",
+    "magical-athlete-simulator",
+]
+
+[tool.uv.sources]
+magical-athlete-simulator = { workspace = true }

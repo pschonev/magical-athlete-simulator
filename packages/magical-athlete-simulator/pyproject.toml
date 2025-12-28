@@ -1,0 +1,13 @@
+[project]
+name = "magical-athlete-simulator"
+version = "0.1.0"
+requires-python = ">=3.14"
+description = "Core game logic for Magical Athlete"
+dependencies = ["rich>=14.2.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatchling.build.targets.wheel]
+packages = ["src/magical_athlete_simulator"]
