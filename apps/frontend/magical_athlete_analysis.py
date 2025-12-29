@@ -455,14 +455,15 @@ def _(
 
             scenario.run_turn()
 
-            # Export HTML immediately
+            # Export HTML and CLEAR the buffer so the next turn starts empty
             snapshot["log_html"] = log_console.export_html(
-                clear=False,  # Don't clear here, we clear at start of loop
+                clear=True,  # <--- CHANGED: Set this to True to empty the buffer
                 inline_styles=True,
                 code_format="{code}",
             )
 
             game_history.append(snapshot)
+
 
             if len(game_history) > 200:
                 break
@@ -690,26 +691,114 @@ def _(
 
 
 @app.cell
-def _(current_turn_data, mo):
-    log_html = (
-        (current_turn_data.get("log_html") or "").strip()
-        if current_turn_data
-        else ""
-    )
+def _(game_history, mo, turn_slider):
+    # --- FULL LOG VIEWER (Hybrid Approach) ---
+    if not game_history:
+        log_ui = mo.md("_No logs available yet._")
+    else:
+        current_idx = turn_slider.value
 
-    log_ui = (
-        mo.Html(f"""
-            <div style="max-height: 400px; overflow-y: auto; background: #1e1e1e; color: #ccc; padding: 10px; border-radius: 6px; border: 1px solid #444; font-family: monospace; white-space: pre-wrap;">
-            {log_html}
+        # Unique ID for the container so our script can find it
+        container_id = "full-log-container-stable"
+        target_id_prefix = "turn-log-"
+
+        # 1. Build the HTML content (Rendered via mo.Html for stability)
+        log_segments = []
+        for i, _snapshot in enumerate(game_history):
+            html_content = _snapshot.get("log_html", "").strip()
+            if not html_content: continue
+
+            is_active = (i == current_idx)
+
+            # Styles for the active row
+            if is_active:
+                bg_color = "#2b303b"
+                border_color = "#4CAF50"
+                text_color = "#ffffff"
+            else:
+                bg_color = "#1e1e1e"
+                border_color = "#333"
+                text_color = "#bbbbbb"
+
+            segment_id = f"{target_id_prefix}{i}"
+
+            segment = f"""
+            <div id="{segment_id}" style="
+                padding: 2px 8px;
+                border-left: 4px solid {border_color};
+                background: {bg_color};
+                color: {text_color};
+                transition: background 0.2s, border-color 0.2s; /* Smooth transition */
+            ">
+                <div style="
+                    font-size: 9px;
+                    color: #666;
+                    font-family: sans-serif;
+                    text-transform: uppercase;
+                    font-weight: bold;
+                    margin-bottom: 1px;
+                ">
+                    Turn {i} • {_snapshot['names'][_snapshot['current_racer']]}
+                </div>
+                {html_content}
             </div>
-        """)
-        if log_html
-        else mo.md(
-            "_No logs for this turn_"
-            if current_turn_data
-            else "_No logs available yet._"
-        )
-    )
+            """
+            log_segments.append(segment)
+
+        full_log_html = "".join(log_segments)
+
+        # The visual container (mo.Html)
+        # We give it a fixed ID so the script can find it in the parent document
+        visual_log = mo.Html(f'''
+            <div id="{container_id}" style="
+                height: 500px; 
+                overflow-y: auto; 
+                background: #1e1e1e; 
+                border-radius: 6px; 
+                border: 1px solid #444; 
+                font-family: monospace; 
+                font-size: 13px;
+                white-space: pre-wrap;
+                scroll-behavior: smooth; 
+            ">
+            {full_log_html}
+            </div>
+        ''')
+
+        # 2. The Scroll Controller (Invisible mo.iframe)
+        # This re-runs every time turn_slider changes, but since it's invisible, 
+        # the user sees no flicker—only the scroll effect.
+        scroll_script = f"""
+        <script>
+            try {{
+                // Access the PARENT window (where the main UI lives)
+                const parentDoc = window.parent.document;
+
+                // Find our container and target
+                const container = parentDoc.getElementById("{container_id}");
+                const target = parentDoc.getElementById("{target_id_prefix}{current_idx}");
+
+                if (container && target) {{
+                    // Calculate relative position
+                    const topPos = target.offsetTop - container.offsetTop;
+
+                    // Execute scroll
+                    container.scrollTo({{
+                        top: topPos - 20, 
+                        behavior: 'smooth'
+                    }});
+                }}
+            }} catch (e) {{
+                console.error("Scroll script error:", e);
+            }}
+        </script>
+        """
+
+        # Render the controller as a 0x0 iframe
+        controller = mo.iframe(scroll_script, width="0px", height="0px")
+
+        # Combine them
+        log_ui = mo.vstack([visual_log, controller])
     return (log_ui,)
 
 
