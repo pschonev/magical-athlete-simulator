@@ -217,10 +217,20 @@ def _(get_racer_color, math):
                 svg_elements.append(
                     f'<circle cx="{cx}" cy="{cy}" r="8" fill="{racer["color"]}" stroke="{stroke}" stroke-width="{width}" />'
                 )
+
+                # Add racer name below the circle
+                svg_elements.append(
+                    f'<text x="{cx}" y="{cy + 20}" font-family="sans-serif" font-size="13" '
+                    f'font-weight="900" text-anchor="middle" fill="{racer["color"]}" '
+                    f'style="paint-order: stroke; stroke: rgba(255,255,255,0.9); stroke-width: 4px;">'
+                    f'{_html.escape(racer["name"])}</text>'
+                )
+
                 if racer["tripped"]:
                     svg_elements.append(f'<text x="{cx}" y="{cy}" dy="4" fill="red" font-weight="bold" text-anchor="middle">X</text>')
 
                 svg_elements.append(f'</g>')
+
 
         # 4. Dice Roll Overlay (TOP RIGHT, Tight layout)
         roll = turn_data.get("last_roll", "-")
