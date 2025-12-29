@@ -692,43 +692,52 @@ def _(
 
 @app.cell
 def _(game_history, mo, turn_slider):
-    # --- FULL LOG VIEWER (Hybrid Approach) ---
+    # --- FULL LOG VIEWER ---
     if not game_history:
         log_ui = mo.md("_No logs available yet._")
     else:
         current_idx = turn_slider.value
 
-        # Unique ID for the container so our script can find it
         container_id = "full-log-container-stable"
         target_id_prefix = "turn-log-"
 
-        # 1. Build the HTML content (Rendered via mo.Html for stability)
+        # 1. Build Segments
         log_segments = []
         for i, _snapshot in enumerate(game_history):
-            html_content = _snapshot.get("log_html", "").strip()
-            if not html_content: continue
+            raw_html = _snapshot.get("log_html", "").strip()
+            if not raw_html: continue
+
+            # --- CRITICAL FIX ---
+            # Rich outputs newlines (\n) which browsers treat as whitespace.
+            # We replace them with <br> to FORCE a visual line break.
+            # We also ensure we don't break the container's pre-wrap logic.
+            html_content = raw_html.replace("\n", "<br>")
 
             is_active = (i == current_idx)
 
-            # Styles for the active row
+            # --- HIGHLIGHT LOGIC ---
             if is_active:
-                bg_color = "#2b303b"
-                border_color = "#4CAF50"
+                bg_color = "#000000"  # Pure black for active
+                border_color = "#00FF00" 
                 text_color = "#ffffff"
+                opacity = "1.0"
             else:
                 bg_color = "#1e1e1e"
                 border_color = "#333"
-                text_color = "#bbbbbb"
+                text_color = "#888888" 
+                opacity = "0.6" 
 
             segment_id = f"{target_id_prefix}{i}"
 
             segment = f"""
-            <div id="{segment_id}" style="
-                padding: 2px 8px;
+            <div id="{segment_id}" class="log-segment" style="
+                padding: 4px 8px;
                 border-left: 4px solid {border_color};
                 background: {bg_color};
                 color: {text_color};
-                transition: background 0.2s, border-color 0.2s; /* Smooth transition */
+                opacity: {opacity};
+                border-bottom: 1px solid #333;
+                transition: background 0.2s, border-color 0.2s, opacity 0.2s;
             ">
                 <div style="
                     font-size: 9px;
@@ -736,55 +745,68 @@ def _(game_history, mo, turn_slider):
                     font-family: sans-serif;
                     text-transform: uppercase;
                     font-weight: bold;
-                    margin-bottom: 1px;
+                    margin-bottom: 2px;
                 ">
                     Turn {i} • {_snapshot['names'][_snapshot['current_racer']]}
                 </div>
-                {html_content}
+
+                <div class="rich-wrapper">
+                    {html_content}
+                </div>
             </div>
             """
             log_segments.append(segment)
 
         full_log_html = "".join(log_segments)
 
-        # The visual container (mo.Html)
-        # We give it a fixed ID so the script can find it in the parent document
+        # 2. Render Container
         visual_log = mo.Html(f'''
             <div id="{container_id}" style="
-                height: 500px; 
+                height: 800px; 
                 overflow-y: auto; 
                 background: #1e1e1e; 
                 border-radius: 6px; 
                 border: 1px solid #444; 
                 font-family: monospace; 
                 font-size: 13px;
-                white-space: pre-wrap;
                 scroll-behavior: smooth; 
             ">
-            {full_log_html}
+                <style>
+                    /* Kill default PRE margins to fix the "huge gap" */
+                    #{container_id} pre {{
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        white-space: normal !important; /* Allow <br> to work, don't rely on \n */
+                        font-family: inherit !important;
+                    }}
+
+                    /* Ensure spans behave like inline text so <br> works naturally */
+                    #{container_id} .r1 {{
+                        display: inline;
+                    }}
+
+                    /* Zero out code block margins too */
+                    #{container_id} code {{
+                        margin: 0 !important;
+                        padding: 0 !important;
+                    }}
+                </style>
+                {full_log_html}
             </div>
         ''')
 
-        # 2. The Scroll Controller (Invisible mo.iframe)
-        # This re-runs every time turn_slider changes, but since it's invisible, 
-        # the user sees no flicker—only the scroll effect.
+        # 3. Scroll Controller (Unchanged)
         scroll_script = f"""
         <script>
             try {{
-                // Access the PARENT window (where the main UI lives)
                 const parentDoc = window.parent.document;
-
-                // Find our container and target
                 const container = parentDoc.getElementById("{container_id}");
                 const target = parentDoc.getElementById("{target_id_prefix}{current_idx}");
 
                 if (container && target) {{
-                    // Calculate relative position
                     const topPos = target.offsetTop - container.offsetTop;
-
-                    // Execute scroll
                     container.scrollTo({{
-                        top: topPos - 20, 
+                        top: topPos - 40,
                         behavior: 'smooth'
                     }});
                 }}
@@ -794,10 +816,7 @@ def _(game_history, mo, turn_slider):
         </script>
         """
 
-        # Render the controller as a 0x0 iframe
         controller = mo.iframe(scroll_script, width="0px", height="0px")
-
-        # Combine them
         log_ui = mo.vstack([visual_log, controller])
     return (log_ui,)
 
