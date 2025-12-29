@@ -70,6 +70,8 @@ class GameEngine:
     subscribers: dict[type[GameEvent], list[Subscriber]] = field(default_factory=dict)
     agents: dict[int, Agent] = field(default_factory=dict)
 
+    # Callback for external observers
+    on_event_processed: Callable[[GameEngine, GameEvent], None] | None = None
     verbose: bool = True
     _logger: logging.Logger = field(init=False, repr=False)
 
@@ -350,6 +352,9 @@ class GameEngine:
 
             case _:
                 pass
+
+        if self.on_event_processed:
+            self.on_event_processed(self, event)
 
     # -- Getters for convencience --
     def get_agent(self, racer_idx: int) -> Agent:
