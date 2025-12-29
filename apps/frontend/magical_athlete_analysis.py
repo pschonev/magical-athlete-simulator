@@ -563,12 +563,12 @@ def _(get_step_idx, mo, set_step_idx, step_history, turn_map):
         prev_turn_step_val = 0
 
     btn_prev_turn = mo.ui.button(
-        label="⏪ Turn", 
+        label="⏪_Turn", 
         on_click=lambda _: set_step_idx(prev_turn_step_val),
         disabled=(current_turn_idx <= 0)
     )
     btn_next_turn = mo.ui.button(
-        label="Turn ⏩", 
+        label="Turn_⏩", 
         on_click=lambda _: set_step_idx(next_turn_step_val),
         disabled=(next_turn_target not in turn_map)
     )

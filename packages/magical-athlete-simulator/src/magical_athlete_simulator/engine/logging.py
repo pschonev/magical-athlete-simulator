@@ -24,18 +24,19 @@ RACER_PATTERN = re.compile(rf"(?<!\[)\b({'|'.join(map(re.escape, RACER_NAMES))})
 
 
 # Simple color theme for Rich
+# Updated Color Theme for High Contrast Dark Mode
 COLOR = {
     "move": "bold green",
-    "warp": "bold green3",
-    "main_move": "bold magenta3",
+    "warp": "bold spring_green1",  # Brighter green for warps
+    "main_move": "bold magenta",
     "warning": "bold red",
-    "ability": "bold blue",
-    "racer": "yellow",
-    "prefix": "dim",
+    "ability": "bold cyan",  # CHANGED: Blue -> Cyan (much better on black)
+    "racer": "bold yellow",  # CHANGED: Made bold for pop
+    "prefix": "grey50",  # CHANGED: Dim -> Explicit grey color
     "level": "bold",
-    "modifier": "bold cyan",
-    "board": "bold",
-    "dice_roll": "bold magenta",
+    "modifier": "bold orange1",  # CHANGED: Distinct from ability cyan
+    "board": "bold white",
+    "dice_roll": "bold plum1",  # Brighter purple
 }
 
 
@@ -102,7 +103,7 @@ class GameLogHighlighter(Highlighter):
 
 def configure_logging() -> None:
     logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     handler = RichHandler(
         markup=True,
         show_path=False,
