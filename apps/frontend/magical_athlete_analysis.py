@@ -338,19 +338,20 @@ def _(
     saved_positions = get_saved_positions()
 
     # 1. Main Controls
-    reset_button = mo.ui.button(label="🔄 Reset Simulation")
+    reset_button = mo.ui.button(label="🔄 Reset Simulation", on_click=lambda _: set_step_idx(0),)
     scenario_seed = mo.ui.number(
-        start=1, stop=10000, value=42, label="Random Seed"
+        start=1, stop=10000, value=42, label="Random Seed", on_change=lambda v: (set_step_idx(0), v)[1],
     )
 
     use_scripted_dice_ui = mo.ui.checkbox(
         value=get_use_scripted_dice(),
-        on_change=set_use_scripted_dice,
+        on_change=lambda v: (set_use_scripted_dice(v), set_step_idx(0))[1],
         label="Use scripted dice",
+
     )
     dice_rolls_text_ui = mo.ui.text(
         value=get_dice_rolls_text(),
-        on_change=set_dice_rolls_text,
+        on_change=lambda v: (set_dice_rolls_text(v), set_step_idx(0))[1],
         label="Dice rolls",
         placeholder="e.g. 4,5,6",
     )
@@ -362,7 +363,6 @@ def _(
 
     def _make_pos_on_change(racer_name):
         def _on_change(new_val):
-            # normalize to int
             try:
                 v = int(new_val)
             except Exception:
@@ -370,12 +370,10 @@ def _(
             # update the saved positions state (this will be read by the simulator)
             set_saved_positions(lambda cur: {**cur, racer_name: v})
             # reset the timeline to start (turn 0 / first step)
-            # set_step_idx comes from the step-index state cell (pass it into this UI cell)
             try:
                 set_step_idx(0)
             except Exception:
-                # if set_step_idx isn't available don't crash — it's best-effort
-                pass
+                raise ValueError("Attempted to reset turn to 0 but failed.")
             return new_val
 
         return _on_change
@@ -412,6 +410,11 @@ def _(
             set_selected_racers(
                 lambda cur: [x for x in cur if x != racer_to_remove]
             )
+            try:
+                set_step_idx(0)
+            except Exception:
+                raise ValueError("Attempted to reset turn to 0 but failed.")
+
 
         return _remover
 
@@ -443,6 +446,10 @@ def _(
             set_saved_positions(new_pos)
             set_selected_racers(lambda cur: cur + [r])
             set_racer_to_add(None)
+            try:
+                set_step_idx(0)
+            except Exception:
+                raise ValueError("Attempted to reset turn to 0 but failed.")
         return v
 
 
