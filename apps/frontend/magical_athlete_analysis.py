@@ -1,8 +1,3 @@
-# /// script
-# [tool.marimo.display]
-# theme = "dark"
-# ///
-
 import marimo
 
 __generated_with = "0.18.4"
@@ -57,9 +52,13 @@ def _(math):
     # --- CONSTANTS ---
     NUM_TILES = 31  # 0..30 (30 is the finish tile)
 
-    space_colors = ["#4CAF50"] + ["#F5F5F5", "#E0E0E0"] * ((NUM_TILES-2) // 2) + ["#F5F5F5"] * (NUM_TILES % 2) + ["#F44336"]
+    space_colors = (
+        ["#4CAF50"]
+        + ["#F5F5F5", "#E0E0E0"] * ((NUM_TILES - 2) // 2)
+        + ["#F5F5F5"] * (NUM_TILES % 2)
+        + ["#F44336"]
+    )
     space_colors = space_colors[:NUM_TILES]
-
 
 
     racer_colors = {
@@ -139,9 +138,9 @@ def _(math):
 
 
 @app.cell
-def _(get_racer_color, math):
+def _(StepSnapshot, get_racer_color, math):
     # --- RENDERER ---
-    def render_game_track(turn_data, positions_map, colors_map):
+    def render_game_track(turn_data: StepSnapshot, positions_map, colors_map):
         import html as _html
 
         if not turn_data:
@@ -169,7 +168,7 @@ def _(get_racer_color, math):
         legend_row_height = 20
         items_per_col = 4
 
-        num_items = len(turn_data["names"])
+        num_items = len(turn_data.names)
         num_cols = math.ceil(num_items / items_per_col)
         legend_bg_width = num_cols * legend_col_width + 10
         legend_bg_height = (items_per_col * legend_row_height) + 30
@@ -183,7 +182,7 @@ def _(get_racer_color, math):
             f"</g>"
         )
 
-        for i, name in enumerate(turn_data["names"]):
+        for i, name in enumerate(turn_data.names):
             c = get_racer_color(name)
             col_idx = i // items_per_col
             row_idx = i % items_per_col
@@ -200,19 +199,19 @@ def _(get_racer_color, math):
 
         # 3. Racers
         occupancy = {}
-        for idx, pos in enumerate(turn_data["positions"]):
+        for idx, pos in enumerate(turn_data.positions):
             draw_pos = min(pos, len(positions_map) - 1)
-            name = turn_data["names"][idx]
+            name = turn_data.names[idx]
 
             # --- Tooltip ---
-            mods = turn_data.get("modifiers", [])
-            abils = turn_data.get("abilities", [])
+            mods = turn_data.modifiers
+            abils = turn_data.abilities
             mod_str = str(mods[idx]) if idx < len(mods) else "[]"
             abil_str = str(abils[idx]) if idx < len(abils) else "[]"
 
             tooltip_text = (
-                f"{name} (ID: {idx}) - VP: {turn_data['vp'][idx]}\n"
-                f"Pos: {pos} | Tripped: {turn_data['tripped'][idx]}\n"
+                f"{name} (ID: {idx}) - VP: {turn_data.vp[idx]}\n"
+                f"Pos: {pos} | Tripped: {turn_data.tripped[idx]}\n"
                 f"Abilities: {abil_str}\n"
                 f"Modifiers: {mod_str}"
             )
@@ -221,8 +220,8 @@ def _(get_racer_color, math):
                 {
                     "name": name,
                     "color": get_racer_color(name),
-                    "is_current": (idx == turn_data["current_racer"]),
-                    "tripped": turn_data["tripped"][idx],
+                    "is_current": (idx == turn_data.current_racer),
+                    "tripped": turn_data.tripped[idx],
                     "tooltip": tooltip_text,
                 }
             )
@@ -275,7 +274,7 @@ def _(get_racer_color, math):
                 svg_elements.append(f"</g>")
 
         # 4. Dice Roll Overlay (TOP RIGHT, Tight layout)
-        roll = turn_data.get("last_roll", "-")
+        roll = turn_data.last_roll
         svg_elements.append(
             f'<text x="680" y="50" font-size="40" text-anchor="end" fill="#333">🎲 {roll}</text>'
         )
@@ -394,7 +393,6 @@ def _(
             # reset the timeline to start (turn 0 / first step)
             set_step_idx(0)
 
-
         return _on_change
 
 
@@ -430,7 +428,6 @@ def _(
                 lambda cur: [x for x in cur if x != racer_to_remove]
             )
             set_step_idx(0)
-
 
         return _remover
 
@@ -533,6 +530,7 @@ def _(
     RacerConfig,
     RichHandler,
     RichMarkupFormatter,
+    StepSnapshot,
     TripCmdEvent,
     WarpCmdEvent,
     current_roster,
@@ -546,6 +544,14 @@ def _(
     reset_button,
     scenario_seed,
 ):
+    from magical_athlete_simulator.simulation.telemetry import (
+        SnapshotPolicy,
+        SnapshotRecorder,
+        AbilityTriggerCounter,
+    )
+    from magical_athlete_simulator.core.events import AbilityTriggeredEvent
+
+
     reset_button.value
     scenario_seed.value
     get_saved_positions()
@@ -594,54 +600,44 @@ def _(
     step_history = []
     turn_map = {}
 
-    VISUAL_EVENTS = (MoveCmdEvent, WarpCmdEvent, TripCmdEvent)
+    # Configure which events should create visible "steps" in the UI timeline.
+    SNAPSHOT_EVENTS = (MoveCmdEvent, WarpCmdEvent, TripCmdEvent)
+
+
+    class RichLogSource:
+        def __init__(self, console):
+            self._console = console
+
+        def export_text(self) -> str:
+            return self._console.export_text(clear=False)
+
+        def export_html(self) -> str:
+            return self._console.export_html(
+                clear=False, inline_styles=True, code_format="{code}"
+            )
+
+
+    policy = SnapshotPolicy(
+        snapshot_event_types=SNAPSHOT_EVENTS,
+        ensure_snapshot_each_turn=True,
+        fallback_event_name="TurnSkipped/Recovery",
+        snapshot_on_turn_end=False,  # keep old behavior: only add fallback when needed
+    )
+
+    snapshot_recorder = SnapshotRecorder(
+        policy=policy,
+        log_source=RichLogSource(log_console),
+    )
+
+    ability_counter = AbilityTriggerCounter()
+
     sim_turn_counter = {"current": 0}
 
 
-    def capture_snapshot(engine, event_name, is_turn_end=False):
-        current_logs_text = log_console.export_text(clear=False)
-        log_line_index = max(0, current_logs_text.count("\n") - 1)
-        current_logs_html = log_console.export_html(
-            clear=False, inline_styles=True, code_format="{code}"
-        )
-
-        t_idx = sim_turn_counter["current"]
-        last_roll = 0
-        if hasattr(engine.state, "roll_state") and engine.state.roll_state:
-            last_roll = getattr(engine.state.roll_state, "base_value", 0)
-        elif hasattr(engine.state, "last_dice_roll"):
-            last_roll = engine.state.last_dice_roll
-
-        snapshot = {
-            "global_step_index": len(step_history),
-            "turn_index": t_idx,
-            "event_name": event_name,
-            "positions": [r.position for r in engine.state.racers],
-            "tripped": [r.tripped for r in engine.state.racers],
-            "vp": [r.victory_points for r in engine.state.racers],
-            "last_roll": last_roll,
-            "current_racer": engine.state.current_racer_idx,
-            "names": [r.name for r in engine.state.racers],
-            "modifiers": [
-                list(getattr(r, "modifiers", [])) for r in engine.state.racers
-            ],
-            "abilities": [
-                sorted(list(getattr(r, "abilities", set())))
-                for r in engine.state.racers
-            ],
-            "log_html": current_logs_html,
-            "log_line_index": log_line_index,
-        }
-
-        step_history.append(snapshot)
-        if t_idx not in turn_map:
-            turn_map[t_idx] = []
-        turn_map[t_idx].append(snapshot["global_step_index"])
-
-
     def on_event(engine, event):
-        if isinstance(event, VISUAL_EVENTS):
-            capture_snapshot(engine, event.__class__.__name__)
+        t_idx = sim_turn_counter["current"]
+        snapshot_recorder.on_event(engine, event, turn_index=t_idx)
+        ability_counter.on_event(event)
 
 
     if hasattr(scenario.engine, "on_event_processed"):
@@ -649,21 +645,27 @@ def _(
 
     engine = scenario.engine
 
-    capture_snapshot(engine, "InitialState", is_turn_end=False)
+    # Initial snapshot (turn 0, before any turns run)
+    snapshot_recorder.capture(engine, "InitialState", turn_index=0)
+
 
     with mo.status.spinner(title="Simulating..."):
         while not engine.state.race_over:
             log_console.export_html(clear=True)
 
-            # run turn and make sure to add snapshot for recovery turns
-            history_start_len = len(step_history)
+            t_idx = sim_turn_counter["current"]
             scenario.run_turn()
-            if len(step_history) == history_start_len:
-                capture_snapshot(engine, "TurnSkipped/Recovery")
+
+            # Ensure we have at least one snapshot for this turn if no tracked events fired.
+            snapshot_recorder.on_turn_end(engine, turn_index=t_idx)
 
             sim_turn_counter["current"] += 1
-            if len(step_history) > 1000:
+            if len(snapshot_recorder.step_history) > 1000:
                 break
+
+    # Export to the variables your downstream cells already expect:
+    step_history: list[StepSnapshot] = snapshot_recorder.step_history
+    turn_map = snapshot_recorder.turn_map
 
     info_md = mo.md(
         f"✅ **Simulation complete!** {len(current_roster)} racers, {sim_turn_counter['current']} turns"
@@ -693,7 +695,7 @@ def _(get_step_idx, mo, set_step_idx, step_history, turn_map):
     else:
         current_step_idx = min(max(0, current_step_idx), len(step_history) - 1)
         current_data = step_history[current_step_idx]
-        current_turn_idx = current_data["turn_index"]
+        current_turn_idx = current_data.turn_index
         max_s = len(step_history) - 1
 
     next_step_val = min(max_s, current_step_idx + 1)
@@ -762,6 +764,8 @@ def _(get_step_idx, mo, set_step_idx, step_history, turn_map):
 
 @app.cell
 def _(
+    Any,
+    Literal,
     btn_next_step,
     btn_next_turn,
     btn_prev_step,
@@ -773,7 +777,9 @@ def _(
     turn_slider,
 ):
     # --- NAV LAYOUT ---
-    curr_step = current_data["global_step_index"] if current_data else 0
+    curr_step: Any | Literal[0] = (
+        current_data.global_step_index if current_data else 0
+    )
     tot_steps = len(step_history) if step_history else 0
 
     status_text = mo.md(
@@ -812,12 +818,12 @@ def _(current_data, current_turn_idx, mo, step_history, turn_map):
                 continue
             is_active = t == current_turn_idx
             end_of_turn_idx = turn_map[t][-1]
-            full_turn_log = step_history[end_of_turn_idx]["log_html"]
+            full_turn_log = step_history[end_of_turn_idx].log_html
 
             if is_active:
                 bg, border, opacity = "#000000", "#00FF00", "1.0"
                 lines = full_turn_log.split("\n")
-                target_line = current_data["log_line_index"]
+                target_line = current_data.log_line_index
                 safe_idx = min(len(lines), target_line + 1)
                 lines.insert(
                     safe_idx,
