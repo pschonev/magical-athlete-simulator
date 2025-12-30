@@ -4,8 +4,10 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "cappa>=0.31.0",
+    "duckdb-engine>=0.17.0",
     "magical-athlete-simulator",
     "msgspec>=0.20.0",
+    "sqlmodel>=0.0.31",
     "tqdm>=4.67.1",
 ]
 

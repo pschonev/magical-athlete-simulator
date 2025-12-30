@@ -35,7 +35,7 @@ class SimulationConfig(msgspec.Struct):
             # Decode bytes directly for max performance
             return msgspec.toml.decode(f.read(), type=cls)
 
-    def get_eligible_racers(self) -> list[str]:
+    def get_eligible_racers(self) -> list[RacerName]:
         """Resolve final list of racers based on include/exclude."""
         # Imports inside method to avoid top-level circular dependencies if any
 

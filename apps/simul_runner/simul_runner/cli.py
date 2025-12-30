@@ -10,6 +10,8 @@ from tqdm import tqdm
 
 from simul_runner.combinations import generate_combinations
 from simul_runner.config import SimulationConfig
+from simul_runner.db_manager import SimulationDatabase
+from simul_runner.db_models import Race, RacerResult
 from simul_runner.runner import run_single_simulation
 
 # Suppress game engine logs at module level
@@ -77,14 +79,15 @@ class Args:
             seed_offset=self.seed_offset,
         )
 
+        # Initialize DB and Load Existing Hashes
+        db = SimulationDatabase(Path("results"))
+        seen_hashes = db.get_known_hashes()
+        initial_seen_count = len(seen_hashes)
+
         # Track results
         completed = 0
         skipped = 0
         aborted = 0
-
-        # TODO: In the future, load this from a DB or file
-        # existing_hashes = db.get_known_hashes()
-        seen_hashes: set[str] = set()
 
         # Progress bar
         with tqdm(desc="Simulating", unit="race") as pbar:
@@ -97,7 +100,7 @@ class Args:
                 # without re-calculating everything.
                 if config_hash in seen_hashes:
                     skipped += 1
-                    # Optional: pbar.update(1) if you want skipped to count towards progress
+                    # Don't update pbar to keep "Simulating" count relevant to work done
                     continue
 
                 seen_hashes.add(config_hash)
@@ -110,13 +113,44 @@ class Args:
                 else:
                     completed += 1
 
-                # Print result (placeholder for persistence)
+                    # Save Result to DB
+                    # Create Race object
+                    race_record = Race(
+                        config_hash=result.config_hash,
+                        seed=game_config.seed,
+                        board=game_config.board,
+                        racer_names=",".join(game_config.racers),
+                        racer_count=len(game_config.racers),
+                        timestamp=result.timestamp,
+                        execution_time_ms=result.execution_time_ms,
+                        aborted=result.aborted,
+                        total_turns=result.turn_count,
+                    )
+
+                    # Create RacerResult objects
+                    racer_records = [
+                        RacerResult(
+                            config_hash=result.config_hash,
+                            racer_name=m.racer_name,
+                            final_vp=m.final_vp,
+                            turns_taken=m.turns_taken,
+                            total_dice_rolled=m.total_dice_rolled,
+                            ability_trigger_count=m.ability_trigger_count,
+                            finished=m.finished,
+                            eliminated=m.eliminated,
+                            rank=idx + 1,  # Rank is 1-based index in metrics list
+                        )
+                        for idx, m in enumerate(result.metrics)
+                    ]
+
+                    db.save_simulation(race_record, racer_records)
+
+                # Print result
                 status = "ABORTED" if result.aborted else "COMPLETED"
-                # Use standard print for logs so they don't conflict with tqdm
                 tqdm.write(
                     f"[{result.config_hash[:8]}] {status} "
                     f"in {result.execution_time_ms:.2f}ms "
-                    f"({result.turn_count} turns)"
+                    f"({result.turn_count} turns)",
                 )
 
                 if not result.aborted:
@@ -125,15 +159,16 @@ class Args:
                             f"  {metric.racer_name}: VP={metric.final_vp}, "
                             f"turns={metric.turns_taken}, "
                             f"dice={metric.total_dice_rolled}, "
-                            f"abilities={metric.ability_trigger_count}"
+                            f"abilities={metric.ability_trigger_count}",
                         )
 
                 pbar.update(1)
 
         print(f"\n✅ Completed: {completed}")
-        print(f"⏭️  Skipped:   {skipped}")
+        print(f"⏭️  Skipped:   {skipped} (Already in DB)")
         print(f"⚠️  Aborted:   {aborted}")
-        print(f"🔑 Unique configs: {len(seen_hashes)}")
+        print(f"🔑 Unique configs processed: {len(seen_hashes) - initial_seen_count}")
+        print(f"💾 Total DB Size: {len(seen_hashes)} races")
 
         return 0
 
