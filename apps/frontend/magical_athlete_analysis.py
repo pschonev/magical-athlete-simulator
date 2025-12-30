@@ -654,7 +654,13 @@ def _(
     with mo.status.spinner(title="Simulating..."):
         while not engine.state.race_over:
             log_console.export_html(clear=True)
+
+            # run turn and make sure to add snapshot for recovery turns
+            history_start_len = len(step_history)
             scenario.run_turn()
+            if len(step_history) == history_start_len:
+                capture_snapshot(engine, "TurnSkipped/Recovery")
+
             sim_turn_counter["current"] += 1
             if len(step_history) > 1000:
                 break
