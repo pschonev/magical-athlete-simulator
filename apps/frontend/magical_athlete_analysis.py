@@ -55,8 +55,12 @@ def _():
 @app.cell
 def _(math):
     # --- CONSTANTS ---
-    space_colors = ["#4CAF50"] + ["#F5F5F5", "#E0E0E0"] * 14 + ["#F44336"]
-    space_colors = space_colors[:30]
+    NUM_TILES = 31  # 0..30 (30 is the finish tile)
+
+    space_colors = ["#4CAF50"] + ["#F5F5F5", "#E0E0E0"] * ((NUM_TILES-2) // 2) + ["#F5F5F5"] * (NUM_TILES % 2) + ["#F44336"]
+    space_colors = space_colors[:NUM_TILES]
+
+
 
     racer_colors = {
         "Banana": "#FFD700",
@@ -130,7 +134,7 @@ def _(math):
         return positions
 
 
-    board_positions = generate_racetrack_positions(30, 120, 350, 350, 100)
+    board_positions = generate_racetrack_positions(NUM_TILES, 120, 350, 350, 100)
     return board_positions, get_racer_color, space_colors
 
 
