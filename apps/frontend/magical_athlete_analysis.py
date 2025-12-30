@@ -25,15 +25,12 @@ def _():
     from magical_athlete_simulator.engine.logging import (
         RichMarkupFormatter,
         GameLogHighlighter,
-        ContextFilter,
     )
     from magical_athlete_simulator.core.types import RacerName
     from magical_athlete_simulator.core.events import (
         MoveCmdEvent,
         WarpCmdEvent,
         TripCmdEvent,
-        PerformMainRollEvent,
-        TurnStartEvent,
     )
     return (
         BOARD_DEFINITIONS,
@@ -373,12 +370,8 @@ def _(
         placeholder="e.g. 4,5,6",
     )
     debug_mode_ui = mo.ui.switch(
-        value=get_debug_mode(),
-        on_change=set_debug_mode,
-        label="Debug logging"
+        value=get_debug_mode(), on_change=set_debug_mode, label="Debug logging"
     )
-
-
 
 
     # 2. Position Inputs — with on_change handlers that update state (reactive)
