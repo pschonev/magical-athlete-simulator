@@ -1,3 +1,8 @@
+# /// script
+# [tool.marimo.display]
+# theme = "dark"
+# ///
+
 import marimo
 
 __generated_with = "0.18.4"
@@ -301,12 +306,16 @@ def _(mo):
         False, allow_self_loops=True
     )
     get_dice_rolls_text, set_dice_rolls_text = mo.state("", allow_self_loops=True)
+
+    get_debug_mode, set_debug_mode = mo.state(False, allow_self_loops=True)
     return (
+        get_debug_mode,
         get_dice_rolls_text,
         get_racer_to_add,
         get_saved_positions,
         get_selected_racers,
         get_use_scripted_dice,
+        set_debug_mode,
         set_dice_rolls_text,
         set_racer_to_add,
         set_saved_positions,
@@ -319,12 +328,14 @@ def _(mo):
 def _(
     RacerName,
     get_args,
+    get_debug_mode,
     get_dice_rolls_text,
     get_racer_to_add,
     get_saved_positions,
     get_selected_racers,
     get_use_scripted_dice,
     mo,
+    set_debug_mode,
     set_dice_rolls_text,
     set_racer_to_add,
     set_saved_positions,
@@ -338,16 +349,22 @@ def _(
     saved_positions = get_saved_positions()
 
     # 1. Main Controls
-    reset_button = mo.ui.button(label="🔄 Reset Simulation", on_click=lambda _: set_step_idx(0),)
+    reset_button = mo.ui.button(
+        label="🔄 Reset Simulation",
+        on_click=lambda _: set_step_idx(0),
+    )
     scenario_seed = mo.ui.number(
-        start=1, stop=10000, value=42, label="Random Seed", on_change=lambda v: (set_step_idx(0), v)[1],
+        start=1,
+        stop=10000,
+        value=42,
+        label="Random Seed",
+        on_change=lambda v: (set_step_idx(0), v)[1],
     )
 
-    use_scripted_dice_ui = mo.ui.checkbox(
+    use_scripted_dice_ui = mo.ui.switch(
         value=get_use_scripted_dice(),
         on_change=lambda v: (set_use_scripted_dice(v), set_step_idx(0))[1],
         label="Use scripted dice",
-
     )
     dice_rolls_text_ui = mo.ui.text(
         value=get_dice_rolls_text(),
@@ -355,6 +372,14 @@ def _(
         label="Dice rolls",
         placeholder="e.g. 4,5,6",
     )
+    debug_mode_ui = mo.ui.switch(
+        value=get_debug_mode(),
+        on_change=set_debug_mode,
+        label="Debug logging"
+    )
+
+
+
 
     # 2. Position Inputs — with on_change handlers that update state (reactive)
     # NOTE: this cell should accept `set_step_idx` in its argument list so we can
@@ -415,7 +440,6 @@ def _(
             except Exception:
                 raise ValueError("Attempted to reset turn to 0 but failed.")
 
-
         return _remover
 
 
@@ -471,6 +495,7 @@ def _(
         add_racer_dropdown,
         all_positions_ui,
         current_roster,
+        debug_mode_ui,
         dice_rolls_text_ui,
         racer_table,
         reset_button,
@@ -483,6 +508,7 @@ def _(
 def _(
     add_button,
     add_racer_dropdown,
+    debug_mode_ui,
     dice_rolls_text_ui,
     mo,
     racer_table,
@@ -498,6 +524,7 @@ def _(
             mo.md("## Configure"),
             mo.hstack([scenario_seed, reset_button], justify="start", gap=2),
             mo.hstack([use_scripted_dice_ui, dice_input], justify="start", gap=2),
+            mo.hstack([debug_mode_ui], justify="start", gap=2),
             mo.md("### Racers"),
             racer_table,
             mo.hstack([add_racer_dropdown, add_button], justify="start", gap=1),
@@ -521,6 +548,7 @@ def _(
     WarpCmdEvent,
     all_positions_ui,
     current_roster,
+    get_debug_mode,
     get_dice_rolls_text,
     get_saved_positions,
     get_use_scripted_dice,
@@ -559,7 +587,9 @@ def _(
     )
     log_handler.setFormatter(RichMarkupFormatter())
     root_logger.addHandler(log_handler)
-    root_logger.setLevel(logging.INFO)
+    log_level = logging.DEBUG if get_debug_mode() else logging.INFO
+    root_logger.setLevel(log_level)  # ← Changed from hardcoded logging.INFO
+
 
     # DIRECT READ: The .value here is a dictionary of {racer_name: int_value}
     # It updates instantly because 'all_positions_ui' is a mo.ui.dictionary.
