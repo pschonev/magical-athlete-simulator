@@ -48,6 +48,55 @@ def _():
 
 
 @app.cell
+def _(mo):
+    import polars as pl
+
+    # File path configuration
+    racer_results_path = mo.ui.text(
+        value="results/racer_results.parquet",
+        label="Racer Results Path",
+        placeholder="path/to/racer_results.parquet",
+    )
+    races_path = mo.ui.text(
+        value="results/races.parquet",
+        label="Races Path",
+        placeholder="path/to/races.parquet",
+    )
+    return pl, racer_results_path, races_path
+
+
+@app.cell
+def _(pl, racer_results_path, races_path):
+    try:
+        df_racer_results = pl.read_parquet(racer_results_path.value)
+        df_races = pl.read_parquet(races_path.value)
+        load_status = "✅ Files loaded successfully"
+    except Exception as e:
+        df_racer_results = pl.DataFrame()
+        df_races = pl.DataFrame()
+        load_status = f"❌ Error loading files: {str(e)}"
+    return df_racer_results, df_races, load_status
+
+
+@app.cell
+def _(df_racer_results, df_races, mo, pl):
+    HASH_COL = "config_hash"
+
+    racer_results_table = mo.ui.table(
+        df_racer_results.select(pl.all().exclude(HASH_COL), pl.col(HASH_COL)),
+        selection="single",
+        label="Racer Results",
+    )
+
+    races_table = mo.ui.table(
+        df_races.select(pl.all().exclude(HASH_COL), pl.col(HASH_COL)),
+        selection="single",
+        label="Races",
+    )
+    return racer_results_table, races_table
+
+
+@app.cell
 def _(math):
     # --- CONSTANTS ---
     NUM_TILES = 31  # 0..30 (30 is the finish tile)
@@ -303,9 +352,9 @@ def _(mo):
     )
 
     get_use_scripted_dice, set_use_scripted_dice = mo.state(
-        False, allow_self_loops=True
+        False, allow_self_loops=False
     )
-    get_dice_rolls_text, set_dice_rolls_text = mo.state("", allow_self_loops=True)
+    get_dice_rolls_text, set_dice_rolls_text = mo.state("", allow_self_loops=False)
 
     get_debug_mode, set_debug_mode = mo.state(False, allow_self_loops=True)
     return (
@@ -350,7 +399,7 @@ def _(
 
     # 1. Main Controls
     reset_button = mo.ui.button(
-        label="🔄 Reset Simulation",
+        label="🔄Reset",
         on_click=lambda _: set_step_idx(0),
     )
     scenario_seed = mo.ui.number(
@@ -464,7 +513,7 @@ def _(
         return v
 
 
-    add_button = mo.ui.button(label="➕ Add", on_click=_add_racer)
+    add_button = mo.ui.button(label="Add", on_click=_add_racer)
 
     # 6. Layout
     table_rows = []
@@ -495,29 +544,69 @@ def _(
     add_button,
     add_racer_dropdown,
     debug_mode_ui,
-    dice_rolls_text_ui,
+    dice_input,
     mo,
     racer_table,
     reset_button,
+    results_tabs,
     scenario_seed,
     use_scripted_dice_ui,
 ):
     # --- CONFIG DISPLAY ---
-    dice_input = dice_rolls_text_ui if use_scripted_dice_ui.value else mo.Html("")
-
-    mo.vstack(
+    mo.hstack(
         [
-            mo.md("## Configure"),
-            mo.hstack([scenario_seed, reset_button], justify="start", gap=2),
-            mo.hstack([use_scripted_dice_ui, dice_input], justify="start", gap=2),
-            mo.hstack([debug_mode_ui], justify="start", gap=2),
-            mo.md("### Racers"),
-            racer_table,
-            mo.hstack([add_racer_dropdown, add_button], justify="start", gap=1),
+            mo.vstack(
+                [
+                    mo.md("## Configure"),
+                    mo.hstack(
+                        [scenario_seed, reset_button], justify="start", gap=2
+                    ),
+                    mo.vstack(
+                        [use_scripted_dice_ui, dice_input],
+                    ),
+                    mo.hstack([debug_mode_ui], justify="start", gap=2),
+                    mo.md("### Racers"),
+                    racer_table,
+                    mo.hstack(
+                        [add_racer_dropdown, add_button], justify="start", gap=1
+                    ),
+                ]
+            ),
+            results_tabs,
         ],
-        gap=1.25,
+        widths="equal",
     )
     return
+
+
+@app.cell
+def _(dice_rolls_text_ui, mo, use_scripted_dice_ui):
+    dice_input = dice_rolls_text_ui if use_scripted_dice_ui.value else mo.Html("")
+    return (dice_input,)
+
+
+@app.cell
+def _(
+    load_status,
+    mo,
+    racer_results_path,
+    racer_results_table,
+    races_path,
+    races_table,
+):
+    results_tabs = mo.ui.tabs(
+        {
+            "Racer Results": mo.vstack([mo.md(load_status), racer_results_table]),
+            "Races": mo.vstack([mo.md(load_status), races_table]),
+            "Paths": mo.vstack(
+                [
+                    racer_results_path,
+                    races_path,
+                ]
+            ),
+        }
+    )
+    return (results_tabs,)
 
 
 @app.cell

@@ -5,6 +5,7 @@ requires-python = ">=3.14"
 dependencies = [
     "marimo[lsp]",
     "magical-athlete-simulator",
+    "polars>=1.36.1",
 ]
 
 [tool.uv.sources]
