@@ -52,7 +52,7 @@ def _(mo):
     import polars as pl
     from pathlib import Path
 
-    reload_data_btn = mo.ui.button(label="🔄 Reload Data")
+    reload_data_btn = mo.ui.button(label="⟳ Reload Data")
 
     results_folder_browser = mo.ui.file_browser(
         selection_mode="directory",
@@ -435,20 +435,14 @@ def _(
 
     # 1. Main Controls
     reset_button = mo.ui.button(
-        label="🔄Reset",
+        label="⟳Reset",
         on_click=lambda _: set_step_idx(0),
     )
 
-
-    # Helper to handle manual changes
-    # FIX: Do NOT clear the last loaded hash here.
-    # This prevents the watcher from "re-loading" the table selection
-    # immediately after we manually change a value.
     def manual_change(setter, value):
         setter(value)
         set_step_idx(0)
         return value
-
 
     scenario_seed = mo.ui.number(
         start=1,
@@ -480,9 +474,7 @@ def _(
         value=get_debug_mode(), on_change=set_debug_mode, label="Debug logging"
     )
 
-
-    # ... (Rest of Position Inputs, Snapshot Logic, Remove Buttons, Add Racer remains identical)
-    # 2. Position Inputs
+    # 2. Position Inputs & Logic
     def _make_pos_on_change(racer_name):
         def _on_change(new_val):
             try:
@@ -491,9 +483,7 @@ def _(
                 v = 0
             set_saved_positions(lambda cur: {**cur, racer_name: v})
             set_step_idx(0)
-
         return _on_change
-
 
     pos_widget_map = {
         ui_racer: mo.ui.number(
@@ -506,33 +496,51 @@ def _(
         for ui_racer in current_roster
     }
 
-
     # 3. Snapshot Logic
     def _snapshot_values(exclude=None):
         return {r: w.value for r, w in pos_widget_map.items() if r != exclude}
 
+    # --- REORDERING LOGIC ---
+    def move_racer(index, direction):
+        # Direction: -1 for up, +1 for down
+        def _move(_):
+            roster = list(get_selected_racers())
+            new_index = index + direction
+            if 0 <= new_index < len(roster):
+                roster[index], roster[new_index] = roster[new_index], roster[index]
+                set_selected_racers(roster)
+                set_step_idx(0) # Reset sim
+        return _move
 
-    # 4. Remove Buttons
-    def _remove_factory(racer_to_remove):
-        def _remover(_):
-            new_pos = _snapshot_values(exclude=racer_to_remove)
-            set_saved_positions(new_pos)
-            set_selected_racers(
-                lambda cur: [x for x in cur if x != racer_to_remove]
-            )
-            set_step_idx(0)
-
-        return _remover
-
-
-    rem_buttons = {
-        ui_racer: mo.ui.button(
+    # 4. Action Buttons (Remove, Up, Down)
+    action_buttons = {}
+    for i, ui_racer in enumerate(current_roster):
+        # Remove
+        btn_remove = mo.ui.button(
             label="✖",
-            on_click=_remove_factory(ui_racer),
+            on_click=lambda _, r=ui_racer: (
+                set_saved_positions(_snapshot_values(exclude=r)),
+                set_selected_racers(lambda cur: [x for x in cur if x != r]),
+                set_step_idx(0)
+            ),
             disabled=(len(current_roster) <= 1),
         )
-        for ui_racer in current_roster
-    }
+
+        # Up (disabled for first item)
+        btn_up = mo.ui.button(
+            label="↑",
+            on_click=move_racer(i, -1),
+            disabled=(i == 0),
+        )
+
+        # Down (disabled for last item)
+        btn_down = mo.ui.button(
+            label="↓",
+            on_click=move_racer(i, 1),
+            disabled=(i == len(current_roster) - 1),
+        )
+
+        action_buttons[ui_racer] = (btn_remove, btn_up, btn_down)
 
     # 5. Add Racer Logic
     available_options = [r for r in AVAILABLE_RACERS if r not in current_roster]
@@ -543,31 +551,33 @@ def _(
         label="Add racer",
     )
 
-
     def _add_racer(v):
         r = get_racer_to_add()
         if r and r not in get_selected_racers():
             new_pos = _snapshot_values()
-            new_pos[r] = 0  # Default for new racer
+            new_pos[r] = 0
             set_saved_positions(new_pos)
             set_selected_racers(lambda cur: cur + [r])
             set_racer_to_add(None)
             set_step_idx(0)
         return v
 
-
     add_button = mo.ui.button(label="Add", on_click=_add_racer)
 
-    # 6. Layout
+    # 6. Layout Table
     table_rows = []
     for i, ui_racer in enumerate(current_roster):
         w_pos = pos_widget_map[ui_racer]
-        w_rem = rem_buttons[ui_racer]
-        table_rows.append(f"| {i+1}. {ui_racer} | {w_pos} | {w_rem} |")
+        b_rem, b_up, b_down = action_buttons[ui_racer]
+
+        # Group Up/Down buttons tightly
+        move_grp = mo.hstack([b_up, b_down], justify="center", gap=0)
+
+        table_rows.append(f"| {i+1}. {ui_racer} | {w_pos} | {move_grp} | {b_rem} |")
 
     racer_table = mo.md(
-        "| Racer | Start Pos | Remove |\n"
-        "| :--- | :--- | :---: |\n" + "\n".join(table_rows)
+        "| Racer | Start Pos | Order | Remove |\n"
+        "| :--- | :--- | :---: | :---: |\n" + "\n".join(table_rows)
     )
     return (
         add_button,
@@ -744,7 +754,6 @@ def _(
         }
     )
     return (results_tabs,)
-
 
 
 @app.cell
