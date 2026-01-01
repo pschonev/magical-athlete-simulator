@@ -201,7 +201,7 @@ class Args:
         # Final summary (after progress bar completes)
         tqdm.write(
             f"""
-        \n✅ Completed: {completed}
+        ✅ Completed: {completed}
         ⏭️  Skipped:   {skipped} (Already in DB)
         ⚠️  Aborted:   {aborted}
         🔑 Unique configs processed: {len(seen_hashes) - initial_seen_count}
