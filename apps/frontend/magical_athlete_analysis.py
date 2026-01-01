@@ -50,31 +50,46 @@ def _():
 @app.cell
 def _(mo):
     import polars as pl
+    from pathlib import Path
 
-    # File path configuration
-    racer_results_path = mo.ui.text(
-        value="results/racer_results.parquet",
-        label="Racer Results Path",
-        placeholder="path/to/racer_results.parquet",
+    reload_data_btn = mo.ui.button(label="🔄 Reload Data")
+
+    results_folder_browser = mo.ui.file_browser(
+        selection_mode="directory",
+        label="Select Results Folder",
+        initial_path="results",
     )
-    races_path = mo.ui.text(
-        value="results/races.parquet",
-        label="Races Path",
-        placeholder="path/to/races.parquet",
-    )
-    return pl, racer_results_path, races_path
+    return Path, pl, reload_data_btn, results_folder_browser
 
 
 @app.cell
-def _(pl, racer_results_path, races_path):
+def _(Path, pl, reload_data_btn, results_folder_browser):
+    reload_data_btn.value
+
+    # 1. Determine the Base Folder as a Path object
+    if results_folder_browser.value:
+        base_folder = Path(results_folder_browser.value[0].path)
+    else:
+        base_folder = Path("results")
+
+    # 2. Construct Paths using the slash operator
+    path_races = base_folder / "races.parquet"
+    path_res = base_folder / "racer_results.parquet"
+
+    # 3. Load Data
     try:
-        df_racer_results = pl.read_parquet(racer_results_path.value)
-        df_races = pl.read_parquet(races_path.value)
-        load_status = "✅ Files loaded successfully"
+        if not path_races.exists() or not path_res.exists():
+            raise FileNotFoundError(
+                f"Folder '{base_folder}' must contain 'races.parquet' and 'racer_results.parquet'"
+            )
+
+        df_racer_results = pl.read_parquet(path_res)
+        df_races = pl.read_parquet(path_races)
+        load_status = f"✅ Loaded from: `{base_folder}`"
     except Exception as e:
         df_racer_results = pl.DataFrame()
         df_races = pl.DataFrame()
-        load_status = f"❌ Error loading files: {str(e)}"
+        load_status = f"❌ Error: {str(e)}"
     return df_racer_results, df_races, load_status
 
 
@@ -700,24 +715,36 @@ def _(dice_rolls_text_ui, mo, use_scripted_dice_ui):
 def _(
     load_status,
     mo,
-    racer_results_path,
     racer_results_table,
-    races_path,
     races_table,
+    reload_data_btn,
+    results_folder_browser,
 ):
+    def _header():
+        return mo.hstack([mo.md(load_status), reload_data_btn], justify="space-between")
+
     results_tabs = mo.ui.tabs(
         {
-            "Racer Results": mo.vstack([mo.md(load_status), racer_results_table]),
-            "Races": mo.vstack([mo.md(load_status), races_table]),
-            "Paths": mo.vstack(
+            "Racer Results": mo.vstack([
+                _header(), 
+                racer_results_table
+            ]),
+            "Races": mo.vstack([
+                _header(), 
+                races_table
+            ]),
+            "Source": mo.vstack(
                 [
-                    racer_results_path,
-                    races_path,
+                    mo.md("### Data Directory"),
+                    mo.md("Select the folder containing `races.parquet` and `racer_results.parquet`."),
+                    mo.hstack([results_folder_browser, reload_data_btn], align="center"),
+                    mo.callout(mo.md(f"Current Status: {load_status}"), kind="neutral"),
                 ]
-            ),
+            ).style({"width": "100%", "min-height": "400px"}),
         }
     )
     return (results_tabs,)
+
 
 
 @app.cell
