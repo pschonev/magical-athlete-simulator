@@ -1,6 +1,7 @@
 """Database models for simulation results."""
 
 import datetime
+from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
@@ -37,7 +38,7 @@ class Race(SQLModel, table=True):
 class RacerResult(SQLModel, table=True):
     """
     Represents the result of one racer in a specific race.
-    Maps to racer_results.parquet
+    Acts as BOTH the runtime accumulator and the database persistence model.
     """
 
     __tablename__ = "racer_results"  # pyright: ignore[reportAssignmentType, reportUnannotatedClassAttribute]
@@ -49,19 +50,22 @@ class RacerResult(SQLModel, table=True):
     # Racer Identity
     racer_name: str
 
-    # Results
-    final_vp: int
-    turns_taken: int
-    recovery_turns: int
-    sum_dice_rolled: int
+    # Results (Initialized to 0/False for runtime accumulation)
+    final_vp: int = 0
+    turns_taken: int = 0
+    recovery_turns: int = 0
+    sum_dice_rolled: int = 0
 
-    # abilities
-    ability_trigger_count: int
-    ability_self_target_count: int
-    ability_target_count: int
+    # Abilities
+    ability_trigger_count: int = 0
+    ability_self_target_count: int = 0
+    ability_target_count: int = 0
 
     # Status
-    eliminated: bool
+    finished: bool = False
+    finish_position: Optional[int] = None
+    eliminated: bool = False
 
     # Ranking (1st, 2nd, or NULL for everyone else)
-    rank: int | None = None
+    # This is calculated AFTER the race by the runner/CLI
+    rank: Optional[int] = None

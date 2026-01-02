@@ -11,8 +11,8 @@ from magical_athlete_simulator.simulation.telemetry import MetricsAggregator
 if TYPE_CHECKING:
     from magical_athlete_simulator.core.events import GameEvent
     from magical_athlete_simulator.engine.game_engine import GameEngine
+    from magical_athlete_simulator.simulation.db.models import RacerResult
     from magical_athlete_simulator.simulation.hashing import GameConfiguration
-    from magical_athlete_simulator.simulation.telemetry import RaceMetrics
 
 
 @dataclass(slots=True)
@@ -24,11 +24,11 @@ class SimulationResult:
     execution_time_ms: float
     aborted: bool
     turn_count: int
-    metrics: list[RaceMetrics]
+    metrics: list[RacerResult]
 
 
 def run_single_simulation(
-    config: GameConfiguration,
+    config: "GameConfiguration",
     max_turns: int,
 ) -> SimulationResult:
     """
@@ -53,10 +53,14 @@ def run_single_simulation(
     )
 
     engine = scenario.engine
-    aggregator = MetricsAggregator()
+
+    # Pass config_hash to aggregator so it can init the Result objects correctly
+    aggregator = MetricsAggregator(config_hash=config_hash)
+    aggregator.initialize_racers(engine)
+
     turn_counter = 0
 
-    def on_event(_: GameEngine, event: GameEvent):
+    def on_event(_: "GameEngine", event: "GameEvent"):
         aggregator.on_event(event=event)
 
     engine.on_event_processed = on_event
@@ -64,12 +68,10 @@ def run_single_simulation(
     aborted = False
 
     while not engine.state.race_over:
-        # Capture active racer BEFORE turn execution (to avoid off-by-one from _advance_turn)
         active_racer_idx = engine.state.current_racer_idx
 
         scenario.run_turn()
 
-        # Pass explicit racer index to prevent turn attribution shift
         aggregator.on_turn_end(
             engine, turn_index=turn_counter, active_racer_idx=active_racer_idx
         )
@@ -82,9 +84,7 @@ def run_single_simulation(
     end_time = time.perf_counter()
     execution_time_ms = (end_time - start_time) * 1000
 
-    # Note: We return raw metrics here in ID order.
-    # Sorting/Ranking happens in CLI to keep runner pure.
-    metrics = [] if aborted else aggregator.export_race_metrics(engine)
+    metrics = [] if aborted else aggregator.finalize_metrics(engine)
 
     return SimulationResult(
         config_hash=config_hash,

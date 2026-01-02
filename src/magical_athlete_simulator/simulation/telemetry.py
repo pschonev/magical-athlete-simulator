@@ -5,13 +5,15 @@ from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
     TripRecoveryEvent,
 )
+from magical_athlete_simulator.simulation.db.models import RacerResult
 
 if TYPE_CHECKING:
     from magical_athlete_simulator.core.events import GameEvent
-    from magical_athlete_simulator.core.types import AbilityName, ModifierName
+    from magical_athlete_simulator.core.types import (
+        AbilityName,
+        ModifierName,
+    )
     from magical_athlete_simulator.engine.game_engine import GameEngine
-
-EventT = TypeVar("EventT", bound=object)
 
 
 class LogSource(Protocol):
@@ -33,18 +35,14 @@ class StepSnapshot:
     global_step_index: int
     turn_index: int
     event_name: str
-
     positions: list[int]
     tripped: list[bool]
     vp: list[int]
-
     last_roll: int
     current_racer: int
     names: list[str]
-
     modifiers: list[list[AbilityName | ModifierName]]
     abilities: list[list[AbilityName]]
-
     log_html: str
     log_line_index: int
 
@@ -53,11 +51,8 @@ class StepSnapshot:
 class SnapshotRecorder:
     policy: SnapshotPolicy
     log_source: LogSource
-
     step_history: list[StepSnapshot] = field(default_factory=list)
     turn_map: dict[int, list[int]] = field(default_factory=dict)
-
-    # Internal per-turn bookkeeping:
     _turn_step_counts: dict[int, int] = field(default_factory=dict)
 
     def on_event(
@@ -109,51 +104,6 @@ class SnapshotRecorder:
 
 
 @dataclass(slots=True)
-class AbilityTriggerCounter:
-    """
-    Counts ability triggers per racer for events that carry:
-      - event.responsible_racer_idx
-    """
-
-    counts: dict[int, int] = field(default_factory=dict)
-
-    def on_event(self, event: GameEvent) -> None:
-        if isinstance(event, AbilityTriggeredEvent):
-            idx = event.responsible_racer_idx
-            self.counts[idx] = self.counts.get(idx, 0) + 1
-
-
-@dataclass(slots=True)
-class RacerStats:
-    """Accumulator for run-time statistics per racer."""
-
-    turns_taken: int = 0
-    total_dice_rolled: int = 0
-    ability_triggers: int = 0
-    ability_self_target: int = 0
-    ability_target: int = 0
-    recovery_turns: int = 0
-
-
-@dataclass(slots=True)
-class RaceMetrics:
-    """Final immutable metrics for one racer in one race configuration."""
-
-    racer_idx: int
-    racer_name: str
-    final_vp: int
-    turns_taken: int
-    recovery_turns: int
-    total_dice_rolled: int
-    ability_trigger_count: int
-    ability_self_target: int
-    ability_target: int
-    finished: bool
-    finish_position: int | None
-    eliminated: bool
-
-
-@dataclass(slots=True)
 class TurnRecord:
     """Lightweight record of a single turn's key outcome."""
 
@@ -165,38 +115,53 @@ class TurnRecord:
 @dataclass(slots=True)
 class MetricsAggregator:
     """
-    Type-safe sink for simulation runner.
+    Accumulates stats directly into RacerResult objects.
     """
 
-    racer_stats: dict[int, RacerStats] = field(default_factory=dict)
+    config_hash: str
 
-    # Log of turn outcomes
+    # We store the RacerResult objects here, keyed by racer_idx
+    results: dict[int, RacerResult] = field(default_factory=dict)
     turn_history: list[TurnRecord] = field(default_factory=list)
 
-    def _get_stats(self, racer_idx: int) -> RacerStats:
-        """Helper to ensure we always have a stats object for a racer."""
-        if racer_idx not in self.racer_stats:
-            self.racer_stats[racer_idx] = RacerStats()
-        return self.racer_stats[racer_idx]
+    def initialize_racers(self, engine: GameEngine) -> None:
+        """
+        Pre-populate results for all racers in the engine.
+        MUST be called before processing events.
+        """
+        for racer in engine.state.racers:
+            self.results[racer.idx] = RacerResult(
+                config_hash=self.config_hash,
+                racer_id=racer.idx,
+                racer_name=racer.name,
+            )
+
+    def _get_result(self, racer_idx: int) -> RacerResult:
+        """
+        Retrieve existing result object.
+        Raises KeyError if racer was not initialized.
+        """
+        return self.results[racer_idx]
 
     def on_event(self, event: GameEvent) -> None:
-        """Count specific events using exact type checks."""
+        """Count specific events."""
         if isinstance(event, AbilityTriggeredEvent):
-            # how often did an ability trigger?
-            self._get_stats(event.responsible_racer_idx).ability_triggers += 1
-            # how often was ability used on self?
+            stats = self._get_result(event.responsible_racer_idx)
+            stats.ability_trigger_count += 1
+
             if event.responsible_racer_idx == event.target_racer_idx:
-                self._get_stats(event.responsible_racer_idx).ability_self_target += 1
-            # how often was racer target of an ability of ANOTHER racer?
+                stats.ability_self_target_count += 1
+
             if (
                 event.target_racer_idx is not None
                 and event.target_racer_idx != event.responsible_racer_idx
             ):
-                self._get_stats(event.target_racer_idx).ability_target += 1
+                target_stats = self._get_result(event.target_racer_idx)
+                target_stats.ability_target_count += 1
 
         if isinstance(event, TripRecoveryEvent):
-            # how often did a racer skip a main move due to tripping?
-            self._get_stats(event.target_racer_idx).recovery_turns += 1
+            stats = self._get_result(event.target_racer_idx)
+            stats.recovery_turns += 1
 
     def on_turn_end(
         self,
@@ -206,45 +171,40 @@ class MetricsAggregator:
         active_racer_idx: int | None = None,
     ) -> None:
         """Update stats at the end of a turn."""
-        # Use the passed index if available, otherwise trust the engine (risky if advanced)
         racer_idx = (
             active_racer_idx
             if active_racer_idx is not None
             else engine.state.current_racer_idx
         )
+        if racer_idx < 0 or racer_idx >= len(engine.state.racers):
+            return
+
         roll_val = engine.state.roll_state.base_value
 
-        stats = self._get_stats(racer_idx)
+        stats = self._get_result(racer_idx)
         stats.turns_taken += 1
-        stats.total_dice_rolled += roll_val
+        stats.sum_dice_rolled += roll_val
 
-        # Record turn history
         self.turn_history.append(
             TurnRecord(turn_index=turn_index, racer_idx=racer_idx, dice_roll=roll_val),
         )
 
-    def export_race_metrics(self, engine: GameEngine) -> list[RaceMetrics]:
-        """Convert accumulators into final immutable metrics."""
-        results: list[RaceMetrics] = []
-
+    def finalize_metrics(self, engine: GameEngine) -> list[RacerResult]:
+        """
+        Finalize values that are simply snapshots of the end state (VP, position).
+        Returns the list of RacerResult objects ready for DB insertion.
+        """
+        output: list[RacerResult] = []
         for racer in engine.state.racers:
-            stats = self._get_stats(racer.idx)
+            # We trust initialize_racers was called; if this fails, we want to crash loudly
+            stats = self._get_result(racer.idx)
 
-            results.append(
-                RaceMetrics(
-                    racer_idx=racer.idx,
-                    racer_name=racer.name,
-                    final_vp=racer.victory_points,
-                    turns_taken=stats.turns_taken,
-                    recovery_turns=stats.recovery_turns,
-                    total_dice_rolled=stats.total_dice_rolled,
-                    ability_trigger_count=stats.ability_triggers,
-                    ability_self_target=stats.ability_self_target,
-                    ability_target=stats.ability_target,
-                    finished=racer.finished,
-                    finish_position=racer.finish_position,
-                    eliminated=racer.eliminated,
-                ),
-            )
+            # Update final snapshot values
+            stats.final_vp = racer.victory_points
+            stats.finished = racer.finished
+            stats.finish_position = racer.finish_position
+            stats.eliminated = racer.eliminated
 
-        return results
+            output.append(stats)
+
+        return output
