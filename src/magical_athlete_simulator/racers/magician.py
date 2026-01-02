@@ -59,6 +59,7 @@ class AbilityMagicalReroll(Ability):
                     owner_idx,
                     source=self.name,
                     phase=event.phase,
+                    target_racer_idx=owner_idx,
                 ),
             )
             trigger_reroll(engine, owner_idx, "MagicalReroll")
