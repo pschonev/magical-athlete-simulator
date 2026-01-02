@@ -16,8 +16,8 @@ class SimulationConfig(msgspec.Struct):
     so we don't need default_factory.
     """
 
-    include_racers: list[str] = msgspec.field(default_factory=list)
-    exclude_racers: list[str] = msgspec.field(default_factory=list)
+    include_racers: list[RacerName] = msgspec.field(default_factory=list)
+    exclude_racers: list[RacerName] = msgspec.field(default_factory=list)
 
     # Combinations to test
     # Use a lambda to return your specific default lists
@@ -40,11 +40,13 @@ class SimulationConfig(msgspec.Struct):
         """Resolve final list of racers based on include/exclude."""
         # Imports inside method to avoid top-level circular dependencies if any
 
-        all_racers = list(get_args(RacerName))
+        all_racers: list[RacerName] = list(get_args(RacerName))
 
         # Start with allow-list or all
         if self.include_racers:
-            eligible = [r for r in self.include_racers if r in all_racers]
+            eligible: list[RacerName] = [
+                r for r in self.include_racers if r in all_racers
+            ]
         else:
             eligible = all_racers
 

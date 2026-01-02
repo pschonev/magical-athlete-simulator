@@ -18,9 +18,9 @@ EXHAUSTIVE_LIMIT = 10_000_000
 
 def compute_total_runs(
     *,
-    eligible_racers: list["RacerName"],
-    racer_counts: "Iterable[int]",
-    boards: list["BoardName"],
+    eligible_racers: list[RacerName],
+    racer_counts: Iterable[int],
+    boards: list[BoardName],
     runs_per_combination: int | None,
     max_total_runs: int | None,
     exhaustive_limit: int = EXHAUSTIVE_LIMIT,
@@ -50,13 +50,13 @@ def compute_total_runs(
 
 
 def generate_combinations(
-    eligible_racers: list["RacerName"],
+    eligible_racers: list[RacerName],
     racer_counts: list[int],
-    boards: list["BoardName"],
+    boards: list[BoardName],
     runs_per_combination: int | None,
     max_total_runs: int | None,
     seed_offset: int = 0,
-) -> "Iterator[GameConfiguration]":
+) -> Iterator[GameConfiguration]:
     n_seeds = runs_per_combination or 1
 
     total_expected = compute_total_runs(
@@ -70,7 +70,11 @@ def generate_combinations(
 
     if total_expected is None:
         yield from _generate_random_infinite(
-            eligible_racers, racer_counts, boards, seed_offset, max_total_runs
+            eligible_racers,
+            racer_counts,
+            boards,
+            seed_offset,
+            max_total_runs,
         )
         return
 
@@ -80,47 +84,54 @@ def generate_combinations(
 
     if space_total > EXHAUSTIVE_LIMIT:
         yield from _generate_random_infinite(
-            eligible_racers, racer_counts, boards, seed_offset, max_total_runs
+            eligible_racers,
+            racer_counts,
+            boards,
+            seed_offset,
+            max_total_runs,
         )
         return
 
     # Exhaustive mode
-    bucket_combinations: dict[int, list[tuple["RacerName", ...]]] = {}
+    bucket_combinations: dict[int, list[tuple[RacerName, ...]]] = {}
     for count in racer_counts:
         bucket_combinations[count] = list(
-            itertools.combinations(eligible_racers, count)
+            itertools.combinations(eligible_racers, count),
         )
 
     yield from _generate_exhaustive(
-        bucket_combinations, boards, n_seeds, seed_offset, max_total_runs
+        bucket_combinations,
+        boards,
+        n_seeds,
+        seed_offset,
+        max_total_runs,
     )
 
 
 def _generate_exhaustive(
-    bucket_combinations: dict[int, list[tuple["RacerName", ...]]],
-    boards: list["BoardName"],
+    bucket_combinations: dict[int, list[tuple[RacerName, ...]]],
+    boards: list[BoardName],
     n_seeds: int,
     seed_offset: int,
     max_total_runs: int | None,
-) -> "Iterator[GameConfiguration]":
+) -> Iterator[GameConfiguration]:
     """
     Flatten the entire universe into a list of tasks, shuffle them, and yield.
     Each 'Task' is a tuple: (Board, RacerTuple, SeedIndex).
     """
-    tasks = []
+    tasks: list[tuple[BoardName, tuple[RacerName, ...], int]] = []
 
     # Flatten the universe
     for board in boards:
-        for count, combos in bucket_combinations.items():
+        for combos in bucket_combinations.values():
             for racer_tuple in combos:
                 for seed_idx in range(n_seeds):
-                    tasks.append((board, racer_tuple, seed_idx))
+                    tasks.append((board, racer_tuple, seed_idx))  # noqa: PERF401
 
     # Global shuffle of execution order
     random.shuffle(tasks)
 
-    yielded = 0
-    for board, racer_tuple, seed_idx in tasks:
+    for yielded, (board, racer_tuple, seed_idx) in enumerate(tasks):
         if max_total_runs is not None and yielded >= max_total_runs:
             return
 
@@ -141,16 +152,15 @@ def _generate_exhaustive(
             board=board,
             seed=final_seed,
         )
-        yielded += 1
 
 
 def _generate_random_infinite(
-    eligible_racers: list["RacerName"],
+    eligible_racers: list[RacerName],
     racer_counts: list[int],
-    boards: list["BoardName"],
+    boards: list[BoardName],
     seed_offset: int,
     max_total_runs: int | None,
-) -> "Iterator[GameConfiguration]":
+) -> Iterator[GameConfiguration]:
     """Infinite random sampler for massive spaces."""
     yielded = 0
     while True:

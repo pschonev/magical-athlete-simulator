@@ -14,7 +14,7 @@ from magical_athlete_simulator.simulation.combinations import (
 )
 from magical_athlete_simulator.simulation.config import SimulationConfig
 from magical_athlete_simulator.simulation.db.manager import SimulationDatabase
-from magical_athlete_simulator.simulation.db.models import Race, RacerResult
+from magical_athlete_simulator.simulation.db.models import Race
 from magical_athlete_simulator.simulation.runner import run_single_simulation
 
 logging.getLogger("magical_athlete").setLevel(logging.CRITICAL)
@@ -140,7 +140,7 @@ class Args:
 
                         if unsaved_changes >= BATCH_SIZE:
                             tqdm.write(
-                                f"💾 Flushing {unsaved_changes} records to disk..."
+                                f"💾 Flushing {unsaved_changes} records to disk...",
                             )
                             db.flush_to_parquet()
                             unsaved_changes = 0
@@ -152,7 +152,7 @@ class Args:
         finally:
             if unsaved_changes > 0:
                 tqdm.write(
-                    f"💾 Flushing {unsaved_changes} remaining records to disk..."
+                    f"💾 Flushing {unsaved_changes} remaining records to disk...",
                 )
                 db.flush_to_parquet()
 

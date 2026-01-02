@@ -6,28 +6,31 @@ app = marimo.App(width="full")
 
 @app.cell
 def _():
-    import marimo as mo
-    import altair as alt
-    import math
     import logging
+    import math
     import re
+    from typing import get_args
+
+    import altair as alt
+    import marimo as mo
     from rich.console import Console
     from rich.logging import RichHandler
-    from typing import get_args
+
+    from magical_athlete_simulator.core.events import (
+        MoveCmdEvent,
+        TripCmdEvent,
+        WarpCmdEvent,
+    )
+    from magical_athlete_simulator.core.types import RacerName
+    from magical_athlete_simulator.engine.board import BOARD_DEFINITIONS
+    from magical_athlete_simulator.engine.logging import (
+        GameLogHighlighter,
+        RichMarkupFormatter,
+    )
 
     # Imports
     from magical_athlete_simulator.engine.scenario import GameScenario, RacerConfig
-    from magical_athlete_simulator.engine.board import BOARD_DEFINITIONS
-    from magical_athlete_simulator.engine.logging import (
-        RichMarkupFormatter,
-        GameLogHighlighter,
-    )
-    from magical_athlete_simulator.core.types import RacerName
-    from magical_athlete_simulator.core.events import (
-        MoveCmdEvent,
-        WarpCmdEvent,
-        TripCmdEvent,
-    )
+
     return (
         BOARD_DEFINITIONS,
         Console,
@@ -126,7 +129,6 @@ def _(math):
     )
     space_colors = space_colors[:NUM_TILES]
 
-
     racer_colors = {
         "Banana": "#FFD700",
         "Centaur": "#8B4513",
@@ -149,7 +151,6 @@ def _(math):
         "#1E90FF",
     ]
 
-
     def get_racer_color(name):
         if name in racer_colors:
             return racer_colors[name]
@@ -157,7 +158,6 @@ def _(math):
             return FALLBACK_PALETTE[(hash(name) % len(FALLBACK_PALETTE))]
         except:
             return "#888888"
-
 
     def generate_racetrack_positions(
         num_spaces, start_x, start_y, straight_len, radius
@@ -197,7 +197,6 @@ def _(math):
                 angle = math.degrees(theta) + 90
             positions.append((x, y, angle))
         return positions
-
 
     board_positions = generate_racetrack_positions(NUM_TILES, 120, 350, 350, 100)
     return board_positions, get_racer_color, space_colors
@@ -316,9 +315,7 @@ def _(StepSnapshot, get_racer_color, math):
                 width = "3" if racer["is_current"] else "1.5"
 
                 svg_elements.append(f"<g>")
-                svg_elements.append(
-                    f'<title>{_html.escape(racer["tooltip"])}</title>'
-                )
+                svg_elements.append(f"<title>{_html.escape(racer['tooltip'])}</title>")
 
                 svg_elements.append(
                     f'<circle cx="{cx}" cy="{cy}" r="8" fill="{racer["color"]}" stroke="{stroke}" stroke-width="{width}" />'
@@ -329,7 +326,7 @@ def _(StepSnapshot, get_racer_color, math):
                     f'<text x="{cx}" y="{cy + 20}" font-family="sans-serif" font-size="13" '
                     f'font-weight="900" text-anchor="middle" fill="{racer["color"]}" '
                     f'style="paint-order: stroke; stroke: rgba(255,255,255,0.9); stroke-width: 4px;">'
-                    f'{_html.escape(racer["name"])}</text>'
+                    f"{_html.escape(racer['name'])}</text>"
                 )
 
                 if racer["tripped"]:
@@ -349,6 +346,7 @@ def _(StepSnapshot, get_racer_color, math):
             <ellipse cx="350" cy="260" rx="150" ry="70" fill="#C8E6C9" stroke="none"/>
             {"".join(svg_elements)}
         </svg>"""
+
     return (render_game_track,)
 
 
@@ -379,9 +377,7 @@ def _(mo):
 
     # Track the last seen selection for EACH table to prevent fighting/loops
     get_last_race_hash, set_last_race_hash = mo.state(None, allow_self_loops=True)
-    get_last_result_hash, set_last_result_hash = mo.state(
-        None, allow_self_loops=True
-    )
+    get_last_result_hash, set_last_result_hash = mo.state(None, allow_self_loops=True)
     return (
         get_board,
         get_debug_mode,
@@ -485,6 +481,7 @@ def _(
                 v = 0
             set_saved_positions(lambda cur: {**cur, racer_name: v})
             set_step_idx(0)
+
         return _on_change
 
     pos_widget_map = {
@@ -511,7 +508,8 @@ def _(
             if 0 <= new_index < len(roster):
                 roster[index], roster[new_index] = roster[new_index], roster[index]
                 set_selected_racers(roster)
-                set_step_idx(0) # Reset sim
+                set_step_idx(0)  # Reset sim
+
         return _move
 
     # 4. Action Buttons (Remove, Up, Down)
@@ -523,7 +521,7 @@ def _(
             on_click=lambda _, r=ui_racer: (
                 set_saved_positions(_snapshot_values(exclude=r)),
                 set_selected_racers(lambda cur: [x for x in cur if x != r]),
-                set_step_idx(0)
+                set_step_idx(0),
             ),
             disabled=(len(current_roster) <= 1),
         )
@@ -575,7 +573,7 @@ def _(
         # Group Up/Down buttons tightly
         move_grp = mo.hstack([b_up, b_down], justify="center", gap=0)
 
-        table_rows.append(f"| {i+1}. {ui_racer} | {w_pos} | {move_grp} | {b_rem} |")
+        table_rows.append(f"| {i + 1}. {ui_racer} | {w_pos} | {move_grp} | {b_rem} |")
 
     racer_table = mo.md(
         "| Racer | Start Pos | Order | Remove |\n"
@@ -626,9 +624,7 @@ def _(
                     mo.hstack([debug_mode_ui], justify="start", gap=2),
                     mo.md("### Racers"),
                     racer_table,
-                    mo.hstack(
-                        [add_racer_dropdown, add_button], justify="start", gap=1
-                    ),
+                    mo.hstack([add_racer_dropdown, add_button], justify="start", gap=1),
                 ]
             ),
             results_tabs.style({"overflow-x": "auto", "max-width": "100%"}),
@@ -664,10 +660,7 @@ def _(
         curr_race_row = races_table.value.row(0, named=True)
 
     curr_res_hash = None
-    if (
-        racer_results_table.value is not None
-        and racer_results_table.value.height > 0
-    ):
+    if racer_results_table.value is not None and racer_results_table.value.height > 0:
         curr_res_hash = racer_results_table.value.item(0, "config_hash")
 
     # 2. Get Last Known States
@@ -737,19 +730,17 @@ def _(
 
     results_tabs = mo.ui.tabs(
         {
-            "Racer Results": mo.vstack([
-                _header(), 
-                racer_results_table
-            ]),
-            "Races": mo.vstack([
-                _header(), 
-                races_table
-            ]),
+            "Racer Results": mo.vstack([_header(), racer_results_table]),
+            "Races": mo.vstack([_header(), races_table]),
             "Source": mo.vstack(
                 [
                     mo.md("### Data Directory"),
-                    mo.md("Select the folder containing `races.parquet` and `racer_results.parquet`."),
-                    mo.hstack([results_folder_browser, reload_data_btn], align="center"),
+                    mo.md(
+                        "Select the folder containing `races.parquet` and `racer_results.parquet`."
+                    ),
+                    mo.hstack(
+                        [results_folder_browser, reload_data_btn], align="center"
+                    ),
                     mo.callout(mo.md(f"Current Status: {load_status}"), kind="neutral"),
                 ]
             ).style({"width": "100%", "min-height": "400px"}),
@@ -786,7 +777,7 @@ def _(
     from magical_athlete_simulator.simulation.telemetry import (
         SnapshotPolicy,
         SnapshotRecorder,
-        AbilityTriggerCounter,
+        MetricsAggregator,  # <--- CHANGED THIS IMPORT
     )
     from magical_athlete_simulator.core.events import AbilityTriggeredEvent
 
@@ -836,15 +827,12 @@ def _(
         ],
         dice_rolls=dice_rolls,
         seed=None if dice_rolls else current_seed_val,
-        board=BOARD_DEFINITIONS.get(
-            current_board_val, BOARD_DEFINITIONS["standard"]
-        )(),
+        board=BOARD_DEFINITIONS.get(current_board_val, BOARD_DEFINITIONS["standard"])(),
     )
 
     step_history = []
     turn_map = {}
     SNAPSHOT_EVENTS = (MoveCmdEvent, WarpCmdEvent, TripCmdEvent)
-
 
     class RichLogSource:
         def __init__(self, console):
@@ -858,7 +846,6 @@ def _(
                 clear=False, inline_styles=True, code_format="{code}"
             )
 
-
     policy = SnapshotPolicy(
         snapshot_event_types=SNAPSHOT_EVENTS,
         ensure_snapshot_each_turn=True,
@@ -871,18 +858,21 @@ def _(
         log_source=RichLogSource(log_console),
     )
 
-    ability_counter = AbilityTriggerCounter()
-    sim_turn_counter = {"current": 0}
+    # --- CHANGED BLOCK START ---
+    # We use the new Aggregator. We need a dummy hash since we aren't saving to DB here.
+    metrics_aggregator = MetricsAggregator(config_hash="interactive-session")
+    metrics_aggregator.initialize_racers(scenario.engine)
 
+    sim_turn_counter = {"current": 0}
 
     def on_event(engine, event):
         t_idx = sim_turn_counter["current"]
         snapshot_recorder.on_event(engine, event, turn_index=t_idx)
-        ability_counter.on_event(event)
-
+        metrics_aggregator.on_event(event)  # <--- UPDATED CALL
 
     if hasattr(scenario.engine, "on_event_processed"):
         scenario.engine.on_event_processed = on_event
+    # --- CHANGED BLOCK END ---
 
     engine = scenario.engine
     snapshot_recorder.capture(engine, "InitialState", turn_index=0)
@@ -892,6 +882,11 @@ def _(
             log_console.export_html(clear=True)
             t_idx = sim_turn_counter["current"]
             scenario.run_turn()
+
+            # Note: We don't strictly NEED to call on_turn_end for the aggregator
+            # if we only care about ability counts, but it's good practice:
+            metrics_aggregator.on_turn_end(engine, turn_index=t_idx)
+
             snapshot_recorder.on_turn_end(engine, turn_index=t_idx)
             sim_turn_counter["current"] += 1
             if len(snapshot_recorder.step_history) > 1000:
@@ -968,11 +963,9 @@ def _(get_step_idx, mo, set_step_idx, step_history, turn_map):
         disabled=(current_step_idx >= max_s),
     )
 
-
     def on_slider_change(v):
         if v in turn_map:
             set_step_idx(turn_map[v][0])
-
 
     nav_max_turn = max(turn_map.keys()) if turn_map else 0
     turn_slider = mo.ui.slider(
@@ -1010,13 +1003,11 @@ def _(
     turn_slider,
 ):
     # --- NAV LAYOUT ---
-    curr_step: Any | Literal[0] = (
-        current_data.global_step_index if current_data else 0
-    )
+    curr_step: Any | Literal[0] = current_data.global_step_index if current_data else 0
     tot_steps = len(step_history) if step_history else 0
 
     status_text = mo.md(
-        f"**Turn {current_turn_idx}** (Step {curr_step+1}/{tot_steps})"
+        f"**Turn {current_turn_idx}** (Step {curr_step + 1}/{tot_steps})"
     )
 
     nav_ui = mo.vstack(
@@ -1121,59 +1112,83 @@ def _(alt, df_racer_results, df_races, get_racer_color, mo, pl):
     def _prepare_stats():
         # 1. Correlations (Impact Scores) - These remain valid per-racer
         corr_df = (
-            df_racer_results
-            .group_by("racer_name")
-            .agg([
-                pl.corr("ability_trigger_count", "final_vp").alias("ability_impact_score"),
-                pl.corr("sum_dice_rolled", "final_vp").alias("dice_impact_score")
-            ])
+            df_racer_results.group_by("racer_name")
+            .agg(
+                [
+                    pl.corr("ability_trigger_count", "final_vp").alias(
+                        "ability_impact_score"
+                    ),
+                    pl.corr("sum_dice_rolled", "final_vp").alias("dice_impact_score"),
+                ]
+            )
             .fill_nan(0)
         )
 
         # 2. Main Aggregations
         base_stats = (
-            df_racer_results
-            .with_columns(
-                pl.when(pl.col("turns_taken") > 0).then(pl.col("turns_taken")).otherwise(1).alias("safe_turns"),
-                pl.when(pl.col("final_vp") > 0).then(pl.col("final_vp")).otherwise(None).alias("safe_vp")
+            df_racer_results.with_columns(
+                pl.when(pl.col("turns_taken") > 0)
+                .then(pl.col("turns_taken"))
+                .otherwise(1)
+                .alias("safe_turns"),
+                pl.when(pl.col("final_vp") > 0)
+                .then(pl.col("final_vp"))
+                .otherwise(None)
+                .alias("safe_vp"),
             )
             .group_by("racer_name")
-            .agg([
-                # Score
-                pl.col("final_vp").mean().alias("mean_vp"),
-                pl.col("final_vp").var().alias("var_vp"),
-
-                # Ability Volume (Per Turn is fairer for short games)
-                (pl.col("ability_trigger_count") / pl.col("safe_turns")).mean().alias("triggers_per_turn"),
-                (pl.col("ability_self_target_count") / pl.col("safe_turns")).mean().alias("self_per_turn"),
-                (pl.col("ability_target_count") / pl.col("safe_turns")).mean().alias("target_per_turn"),
-
-                # Dice Volume (Per Turn)
-                (pl.col("sum_dice_rolled") / pl.col("safe_turns")).mean().alias("dice_per_turn"),
-                (pl.col("sum_dice_rolled") / pl.col("safe_vp")).mean().alias("dice_per_vp"),
-
-                # Speed / Game Stats
-                pl.col("turns_taken").mean().alias("avg_turns"),
-                (pl.col("recovery_turns") / pl.col("safe_turns")).mean().alias("recovery_rate"),
-
-                # Win/Place
-                (pl.col("rank") == 1).sum().alias("cnt_1st"),
-                (pl.col("rank") == 2).sum().alias("cnt_2nd"),
-                pl.len().alias("races_run")
-            ])
+            .agg(
+                [
+                    # Score
+                    pl.col("final_vp").mean().alias("mean_vp"),
+                    pl.col("final_vp").var().alias("var_vp"),
+                    # Ability Volume (Per Turn is fairer for short games)
+                    (pl.col("ability_trigger_count") / pl.col("safe_turns"))
+                    .mean()
+                    .alias("triggers_per_turn"),
+                    (pl.col("ability_self_target_count") / pl.col("safe_turns"))
+                    .mean()
+                    .alias("self_per_turn"),
+                    (pl.col("ability_target_count") / pl.col("safe_turns"))
+                    .mean()
+                    .alias("target_per_turn"),
+                    # Dice Volume (Per Turn)
+                    (pl.col("sum_dice_rolled") / pl.col("safe_turns"))
+                    .mean()
+                    .alias("dice_per_turn"),
+                    (pl.col("sum_dice_rolled") / pl.col("safe_vp"))
+                    .mean()
+                    .alias("dice_per_vp"),
+                    # Speed / Game Stats
+                    pl.col("turns_taken").mean().alias("avg_turns"),
+                    (pl.col("recovery_turns") / pl.col("safe_turns"))
+                    .mean()
+                    .alias("recovery_rate"),
+                    # Win/Place
+                    (pl.col("rank") == 1).sum().alias("cnt_1st"),
+                    (pl.col("rank") == 2).sum().alias("cnt_2nd"),
+                    pl.len().alias("races_run"),
+                ]
+            )
         )
 
-        return base_stats.join(corr_df, on="racer_name", how="left").with_columns([
-            (pl.col("cnt_1st") / pl.col("races_run")).alias("pct_1st"),
-            (pl.col("cnt_2nd") / pl.col("races_run")).alias("pct_2nd")
-        ])
+        return base_stats.join(corr_df, on="racer_name", how="left").with_columns(
+            [
+                (pl.col("cnt_1st") / pl.col("races_run")).alias("pct_1st"),
+                (pl.col("cnt_2nd") / pl.col("races_run")).alias("pct_2nd"),
+            ]
+        )
 
-    def _build_quadrant_chart(stats_df, racers, colors, x_col, y_col, title, x_title, y_title, reverse_x=False):
+    def _build_quadrant_chart(
+        stats_df, racers, colors, x_col, y_col, title, x_title, y_title, reverse_x=False
+    ):
         min_x, max_x = stats_df[x_col].min(), stats_df[x_col].max()
         min_y, max_y = stats_df[y_col].min(), stats_df[y_col].max()
 
-        if min_x == max_x: max_x += 0.01
-        if min_y == max_y: max_y += 0.01
+        if min_x == max_x:
+            max_x += 0.01
+        if min_y == max_y:
+            max_y += 0.01
 
         mid_x, mid_y = (min_x + max_x) / 2, (min_y + max_y) / 2
 
@@ -1181,30 +1196,44 @@ def _(alt, df_racer_results, df_races, get_racer_color, mo, pl):
             color=alt.Color("racer_name", scale=alt.Scale(domain=racers, range=colors))
         )
 
-        h_line = alt.Chart(pl.DataFrame({"y": [mid_y]})).mark_rule(strokeDash=[5,5], color="gray").encode(y="y")
-        v_line = alt.Chart(pl.DataFrame({"x": [mid_x]})).mark_rule(strokeDash=[5,5], color="gray").encode(x="x")
+        h_line = (
+            alt.Chart(pl.DataFrame({"y": [mid_y]}))
+            .mark_rule(strokeDash=[5, 5], color="gray")
+            .encode(y="y")
+        )
+        v_line = (
+            alt.Chart(pl.DataFrame({"x": [mid_x]}))
+            .mark_rule(strokeDash=[5, 5], color="gray")
+            .encode(x="x")
+        )
 
         points = base.mark_circle(size=150).encode(
-            x=alt.X(x_col, title=x_title, scale=alt.Scale(reverse=reverse_x, zero=False)),
+            x=alt.X(
+                x_col, title=x_title, scale=alt.Scale(reverse=reverse_x, zero=False)
+            ),
             y=alt.Y(y_col, title=y_title, scale=alt.Scale(zero=False)),
-            tooltip=["racer_name", x_col, y_col, "mean_vp", "races_run"]
+            tooltip=["racer_name", x_col, y_col, "mean_vp", "races_run"],
         )
         return (h_line + v_line + points).properties(title=title, width=500, height=350)
 
     def _build_game_length_chart():
         gl_stats = (
-            df_races
-            .group_by(["board", "racer_count"])
+            df_races.group_by(["board", "racer_count"])
             .agg(pl.col("total_turns").mean().alias("avg_duration"))
             .sort(["board", "racer_count"])
         )
-        return alt.Chart(gl_stats).mark_bar().encode(
-            x=alt.X("racer_count:O", title="Number of Racers"),
-            y=alt.Y("avg_duration", title="Avg Turns to Finish"),
-            column=alt.Column("board", title="Board Map"),
-            color=alt.Color("board", legend=None),
-            tooltip=["board", "racer_count", "avg_duration"]
-        ).properties(title="Game Duration Analysis", width=150, height=300)
+        return (
+            alt.Chart(gl_stats)
+            .mark_bar()
+            .encode(
+                x=alt.X("racer_count:O", title="Number of Racers"),
+                y=alt.Y("avg_duration", title="Avg Turns to Finish"),
+                column=alt.Column("board", title="Board Map"),
+                color=alt.Color("board", legend=None),
+                tooltip=["board", "racer_count", "avg_duration"],
+            )
+            .properties(title="Game Duration Analysis", width=150, height=300)
+        )
 
     # --- Execution ---
     if df_racer_results.height == 0:
@@ -1216,57 +1245,77 @@ def _(alt, df_racer_results, df_races, get_racer_color, mo, pl):
 
         # 1. Consistency
         c_consist = _build_quadrant_chart(
-            stats, r_list, c_list, 
-            "var_vp", "mean_vp", 
-            "Consistency (Risk vs Reward)", "Consistency (Lower Var →)", "Avg Final VP", 
-            reverse_x=True
+            stats,
+            r_list,
+            c_list,
+            "var_vp",
+            "mean_vp",
+            "Consistency (Risk vs Reward)",
+            "Consistency (Lower Var →)",
+            "Avg Final VP",
+            reverse_x=True,
         )
 
         # 2. Ability Value (Per Turn)
         c_ability = _build_quadrant_chart(
-            stats, r_list, c_list, 
-            "triggers_per_turn", "ability_impact_score", 
-            "Ability Strategy (Freq vs Impact)", "Avg Triggers / Turn", "Impact (Corr Triggers/VP)",
-            reverse_x=False
+            stats,
+            r_list,
+            c_list,
+            "triggers_per_turn",
+            "ability_impact_score",
+            "Ability Strategy (Freq vs Impact)",
+            "Avg Triggers / Turn",
+            "Impact (Corr Triggers/VP)",
+            reverse_x=False,
         )
 
         # 3. Dice Strategy (Per Turn)
         c_dice = _build_quadrant_chart(
-            stats, r_list, c_list, 
-            "dice_per_turn", "dice_impact_score", 
-            "Dice Strategy (Volume vs Impact)", "Avg Dice Value / Turn", "Impact (Corr Dice/VP)",
-            reverse_x=False
+            stats,
+            r_list,
+            c_list,
+            "dice_per_turn",
+            "dice_impact_score",
+            "Dice Strategy (Volume vs Impact)",
+            "Avg Dice Value / Turn",
+            "Impact (Corr Dice/VP)",
+            reverse_x=False,
         )
 
         c_len = _build_game_length_chart()
 
-        charts_ui = mo.ui.tabs({
-            "🎯 Consistency": mo.ui.altair_chart(c_consist),
-            "⚡ Ability Value": mo.ui.altair_chart(c_ability),
-            "🎲 Dice Value": mo.ui.altair_chart(c_dice),
-            "⏳ Game Length": mo.ui.altair_chart(c_len),
-        }).style({"min-height": "450px", "width": "100%"})
+        charts_ui = mo.ui.tabs(
+            {
+                "🎯 Consistency": mo.ui.altair_chart(c_consist),
+                "⚡ Ability Value": mo.ui.altair_chart(c_ability),
+                "🎲 Dice Value": mo.ui.altair_chart(c_dice),
+                "⏳ Game Length": mo.ui.altair_chart(c_len),
+            }
+        ).style({"min-height": "450px", "width": "100%"})
 
-        display_df = stats.select([
-            pl.col("racer_name").alias("Racer"),
-            pl.col("mean_vp").round(2).alias("Avg VP"),
-            pl.col("var_vp").round(2).alias("VP Var"),
-            pl.col("ability_impact_score").round(2).alias("Abil Imp"),
-            pl.col("triggers_per_turn").round(2).alias("Trig/Turn"),
-            pl.col("self_per_turn").round(2).alias("Self/Turn"),
-            pl.col("target_per_turn").round(2).alias("Tgt/Turn"),
-            pl.col("dice_per_vp").round(1).alias("Dice/VP"),
-            pl.col("avg_turns").round(1).alias("Avg Turns"),
-            (pl.col("pct_1st") * 100).round(1).alias("1st %"),
-            (pl.col("pct_2nd") * 100).round(1).alias("2nd %"),
-        ]).sort("Avg VP", descending=True)
+        display_df = stats.select(
+            [
+                pl.col("racer_name").alias("Racer"),
+                pl.col("mean_vp").round(2).alias("Avg VP"),
+                pl.col("var_vp").round(2).alias("VP Var"),
+                pl.col("ability_impact_score").round(2).alias("Abil Imp"),
+                pl.col("triggers_per_turn").round(2).alias("Trig/Turn"),
+                pl.col("self_per_turn").round(2).alias("Self/Turn"),
+                pl.col("target_per_turn").round(2).alias("Tgt/Turn"),
+                pl.col("dice_per_vp").round(1).alias("Dice/VP"),
+                pl.col("avg_turns").round(1).alias("Avg Turns"),
+                (pl.col("pct_1st") * 100).round(1).alias("1st %"),
+                (pl.col("pct_2nd") * 100).round(1).alias("2nd %"),
+            ]
+        ).sort("Avg VP", descending=True)
 
         table_ui = mo.ui.table(display_df, selection=None, page_size=10)
 
-        final_output = mo.hstack([
-            charts_ui, 
-            mo.vstack([mo.md("### 🔢 Aggregate Stats"), table_ui])
-        ], widths=[5, 5], gap=2)
+        final_output = mo.hstack(
+            [charts_ui, mo.vstack([mo.md("### 🔢 Aggregate Stats"), table_ui])],
+            widths=[5, 5],
+            gap=2,
+        )
     final_output
     return
 

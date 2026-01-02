@@ -28,7 +28,7 @@ class SimulationResult:
 
 
 def run_single_simulation(
-    config: "GameConfiguration",
+    config: GameConfiguration,
     max_turns: int,
 ) -> SimulationResult:
     """
@@ -60,7 +60,7 @@ def run_single_simulation(
 
     turn_counter = 0
 
-    def on_event(_: "GameEngine", event: "GameEvent"):
+    def on_event(_: GameEngine, event: GameEvent):
         aggregator.on_event(event=event)
 
     engine.on_event_processed = on_event
@@ -73,7 +73,9 @@ def run_single_simulation(
         scenario.run_turn()
 
         aggregator.on_turn_end(
-            engine, turn_index=turn_counter, active_racer_idx=active_racer_idx
+            engine,
+            turn_index=turn_counter,
+            active_racer_idx=active_racer_idx,
         )
         turn_counter += 1
 

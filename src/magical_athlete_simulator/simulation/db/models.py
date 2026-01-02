@@ -1,7 +1,6 @@
 """Database models for simulation results."""
 
 import datetime
-from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
@@ -31,7 +30,7 @@ class Race(SQLModel, table=True):
 
     # Created at (for sorting/archival)
     created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.UTC)
+        default_factory=lambda: datetime.datetime.now(datetime.UTC),
     )
 
 
@@ -62,10 +61,9 @@ class RacerResult(SQLModel, table=True):
     ability_target_count: int = 0
 
     # Status
-    finished: bool = False
-    finish_position: Optional[int] = None
+    finish_position: int | None = None
     eliminated: bool = False
 
     # Ranking (1st, 2nd, or NULL for everyone else)
     # This is calculated AFTER the race by the runner/CLI
-    rank: Optional[int] = None
+    rank: int | None = None

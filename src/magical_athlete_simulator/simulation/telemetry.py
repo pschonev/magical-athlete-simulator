@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol
 
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
@@ -201,7 +201,6 @@ class MetricsAggregator:
 
             # Update final snapshot values
             stats.final_vp = racer.victory_points
-            stats.finished = racer.finished
             stats.finish_position = racer.finish_position
             stats.eliminated = racer.eliminated
 
