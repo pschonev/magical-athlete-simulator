@@ -1,0 +1,24 @@
+# Racer selection
+include_racers = [
+    "Banana",
+    "Centaur",
+    "Magician",
+    "Scoocher",
+    "Gunk",
+    "Romantic",
+    "FlipFlop",
+    "Genius",
+    "Mastermind",
+    "Copycat",
+    "PartyAnimal",
+]
+exclude_racers = []
+
+# Test configurations
+racer_counts = [4, 5, 6]
+boards = ["standard", "wild_wilds"]
+
+# Execution limits
+runs_per_combination = 50
+max_total_runs = 1_000_000
+max_turns_per_race = 100

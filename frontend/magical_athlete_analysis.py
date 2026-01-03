@@ -1142,7 +1142,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
 
         df_long = unpivot_positions(df_positions)
 
-        # 1. Tightness & Elasticity (unchanged)
+        # 1. Tightness & Elasticity
         turn_stats = df_long.group_by(["config_hash", "turn_index"]).agg(
             pl.col("position").mean().alias("mean_pos")
         )
@@ -1239,6 +1239,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                         "race_elasticity_score",
                         "race_avg_triggers",
                         "race_avg_trip_rate",
+                        "total_turns",  # Needed for avg_game_duration
                     ]
                 ),
                 on="config_hash",
@@ -1256,6 +1257,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                     pl.col("race_tightness_score").mean().alias("avg_race_tightness"),
                     pl.col("race_elasticity_score").mean().alias("avg_race_elasticity"),
                     pl.col("turns_taken").mean().alias("avg_turns"),
+                    pl.col("total_turns").mean().alias("avg_game_duration"),  # NEW
                     pl.col("race_avg_triggers").mean().alias("avg_env_triggers"),
                     pl.col("race_avg_trip_rate").mean().alias("avg_env_trip_rate"),
                     # Abilities
@@ -1292,28 +1294,38 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             ]
         )
 
-    # --- Interaction Heatmap Logic ---
+    # --- Interaction Heatmap Logic (Updated) ---
     def _prepare_interaction_matrix(processed_results):
-        # Self-join to get pairs in the same race
-        # Left = Subject, Right = Opponent
+        # 1. Calculate Global Average VP per racer (Baseline)
+        global_means = processed_results.group_by("racer_name").agg(
+            pl.col("final_vp").mean().alias("global_mean_vp")
+        )
 
-        # 1. Subject Frame
+        # 2. Subject Frame
         subjects = processed_results.select(["config_hash", "racer_name", "final_vp"])
 
-        # 2. Opponent Frame (just name and hash)
+        # 3. Opponent Frame
         opponents = processed_results.select(
             [pl.col("config_hash"), pl.col("racer_name").alias("opponent_name")]
         )
 
-        # 3. Join and Filter
+        # 4. Join to form pairs
         pairs = subjects.join(opponents, on="config_hash", how="inner").filter(
             pl.col("racer_name") != pl.col("opponent_name")
         )
 
-        # 4. Aggregate: Avg VP of Subject when Opponent is present
+        # 5. Aggregate and Compare
         matrix = (
             pairs.group_by(["racer_name", "opponent_name"])
             .agg(pl.col("final_vp").mean().alias("avg_vp_with_opponent"))
+            .join(global_means, on="racer_name", how="left")
+            .with_columns(
+                # (Conditional - Global) / Global
+                (
+                    (pl.col("avg_vp_with_opponent") - pl.col("global_mean_vp"))
+                    / pl.col("global_mean_vp")
+                ).alias("relative_shift")
+            )
             .sort(["racer_name", "opponent_name"])
         )
         return matrix
@@ -1496,6 +1508,55 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             reverse_x=False,
             quad_labels=["Clutch", "Engine", "Ineffective", "Spam"],
         )
+
+        # CORRECTED: Duration Profile Chart
+        # X: Avg Game Length (Avg Total Turns of races they are in) -> Measures if they extend games
+        # Y: Duration Pref (Corr Total Turns / VP) -> Measures if they LIKE extended games
+        c_duration = _build_quadrant_chart(
+            stats,
+            r_list,
+            c_list,
+            x_col="avg_game_duration",
+            y_col="duration_pref_score",
+            title="Duration Profile (Pacing)",
+            x_title="Avg Game Length (Short -> Long)",
+            y_title="Duration Preference (Hates Long -> Loves Long)",
+            reverse_x=False,
+            quad_labels=[
+                "Scaler/Staller",
+                "Efficient Scaler",
+                "Rusher/Finisher",
+                "Chaos Agent",
+            ],
+        )
+
+        # NEW: Interaction Heatmap (Relative Shift)
+        c_matrix = (
+            alt.Chart(interaction_matrix)
+            .mark_rect()
+            .encode(
+                x=alt.X("opponent_name:N", title="Opponent Present"),
+                y=alt.Y("racer_name:N", title="Subject Racer"),
+                # Diverging color scale for +/- shift
+                color=alt.Color(
+                    "relative_shift:Q",
+                    title="Rel. Performance Shift",
+                    scale=alt.Scale(scheme="redblue", domainMid=0),
+                ),
+                tooltip=[
+                    "racer_name",
+                    "opponent_name",
+                    alt.Tooltip("avg_vp_with_opponent", format=".2f", title="Cond. VP"),
+                    alt.Tooltip("relative_shift", format="+.1%", title="Shift"),
+                ],
+            )
+            .properties(
+                title="Interaction Matrix (Perf. Shift vs Opponent)",
+                width=680,
+                height=680,
+            )
+        )
+
         c_dice = _build_quadrant_chart(
             stats,
             r_list,
@@ -1507,45 +1568,6 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             y_title="Impact Score",
             reverse_x=False,
             quad_labels=["Efficient", "Power Roller", "Weak", "Empty Calories"],
-        )
-
-        # CORRECTED AXES: Movement Chart (Correlation on Y, Speed on X)
-        c_movement = _build_quadrant_chart(
-            stats,
-            r_list,
-            c_list,
-            x_col="avg_speed",
-            y_col="duration_pref_score",
-            title="Speed vs Duration Preference",
-            x_title="Speed (Avg Move/Turn)",
-            y_title="Duration Pref (High = Likes Long Games)",
-            reverse_x=False,
-            quad_labels=["Marathoner", "Sprinter", "Plodder", "Survivor"],
-        )
-
-        # NEW: Interaction Heatmap
-        c_matrix = (
-            alt.Chart(interaction_matrix)
-            .mark_rect()
-            .encode(
-                x=alt.X("opponent_name:N", title="Opponent Present"),
-                y=alt.Y("racer_name:N", title="Subject Racer"),
-                color=alt.Color(
-                    "avg_vp_with_opponent:Q",
-                    title="Subject Avg VP",
-                    scale=alt.Scale(scheme="viridis"),
-                ),
-                tooltip=[
-                    "racer_name",
-                    "opponent_name",
-                    alt.Tooltip("avg_vp_with_opponent", format=".2f"),
-                ],
-            )
-            .properties(
-                title="VP Interaction Matrix (Subject's VP vs Opponent)",
-                width=680,
-                height=680,
-            )
         )
 
         gl_stats = (
@@ -1571,7 +1593,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                 "🎯 Consistency": mo.ui.altair_chart(c_consist),
                 "🔥 Excitement": mo.ui.altair_chart(c_excitement),
                 "⚡ Ability Value": mo.ui.altair_chart(c_ability),
-                "🏃 Movement": mo.ui.altair_chart(c_movement),
+                "⏱️ Duration": mo.ui.altair_chart(c_duration),
                 "⚔️ Interactions": mo.ui.altair_chart(c_matrix),
                 "🎲 Dice Value": mo.ui.altair_chart(c_dice),
                 "⏳ Game Length": mo.ui.altair_chart(c_len),
@@ -1581,7 +1603,6 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
         # --- 2. Data Tables ---
         master_df = stats.sort("mean_vp", descending=True)
 
-        # Columns selected as requested
         df_overview = master_df.select(
             [
                 pl.col("racer_name").alias("Racer"),
@@ -1597,6 +1618,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                 pl.col("avg_race_elasticity").round(1).alias("Elasticity"),
                 pl.col("avg_race_tightness").round(2).alias("Tightness"),
                 pl.col("avg_turns").round(1).alias("Avg Turns"),
+                pl.col("avg_game_duration").round(1).alias("Avg Game Len"),  # Added
                 pl.col("avg_env_triggers").round(1).alias("Race Trigs"),
                 (pl.col("avg_env_trip_rate") * 100).round(1).alias("Race Trip%"),
             ]
