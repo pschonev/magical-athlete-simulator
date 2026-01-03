@@ -30,7 +30,6 @@ def _():
 
     # Imports
     from magical_athlete_simulator.engine.scenario import GameScenario, RacerConfig
-
     return (
         BOARD_DEFINITIONS,
         Console,
@@ -98,7 +97,7 @@ def _(Path, pl, reload_data_btn, results_folder_browser):
         df_races = pl.DataFrame()
         df_positions = pl.DataFrame()
         load_status = f"❌ Error: {str(e)}"
-    return df_racer_results, df_races, load_status
+    return df_positions, df_racer_results, df_races, load_status
 
 
 @app.cell
@@ -349,7 +348,6 @@ def _(StepSnapshot, get_racer_color, math):
             <ellipse cx="350" cy="260" rx="150" ry="70" fill="#C8E6C9" stroke="none"/>
             {"".join(svg_elements)}
         </svg>"""
-
     return (render_game_track,)
 
 
@@ -1109,70 +1107,46 @@ def _(
 
 
 @app.cell
-def _(
-    alt,
-    df_racer_results,
-    df_races,
-    df_positions,
-    get_racer_color,
-    mo,
-    pl,
-):
+def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
     # --- ANALYTICS DASHBOARD ---
 
     def _calculate_advanced_metrics():
         if df_positions.height == 0:
             return df_racer_results, df_races
 
-        # --- 1. TIGHTNESS (Race Level) ---
-        # Mean deviation from the pack center
+        # 1. Tightness
         turn_stats = df_positions.group_by(["config_hash", "turn_index"]).agg(
             pl.col("position").mean().alias("mean_pos")
         )
-
         tightness_calc = (
             df_positions.join(turn_stats, on=["config_hash", "turn_index"])
-            .with_columns(
-                (pl.col("position") - pl.col("mean_pos")).abs().alias("deviation")
-            )
+            .with_columns((pl.col("position") - pl.col("mean_pos")).abs().alias("dev"))
             .group_by("config_hash")
-            .agg(pl.col("deviation").mean().alias("race_tightness_score"))
+            .agg(pl.col("dev").mean().alias("race_tightness_score"))
         )
 
-        # --- 2. COMEBACK (Race Level) ---
-        # Find the max deficit ANYONE overcame in this race
-
-        # A. Leader position per turn
+        # 2. Elasticity
         leader_stats = df_positions.group_by(["config_hash", "turn_index"]).agg(
             pl.col("position").max().alias("leader_pos")
         )
-
-        # B. Deficit per racer per turn
-        race_comeback_score = (
+        elasticity_calc = (
             df_positions.join(leader_stats, on=["config_hash", "turn_index"])
-            .with_columns(
-                (pl.col("leader_pos") - pl.col("position")).alias("current_deficit")
-            )
-            # Find max deficit for each racer
+            .with_columns((pl.col("leader_pos") - pl.col("position")).alias("deficit"))
             .group_by(["config_hash", "racer_id"])
-            .agg(pl.col("current_deficit").max().alias("racer_max_deficit"))
-            # Find the SINGLE BIGGEST deficit in the whole race
+            .agg(pl.col("deficit").max().alias("max_def"))
             .group_by("config_hash")
-            .agg(pl.col("racer_max_deficit").mean().alias("race_comeback_score"))
+            .agg(pl.col("max_def").mean().alias("race_elasticity_score"))
         )
 
-        # --- 3. MERGE TO RACES ---
-        # We attach these stats to the RACE, not the racer result directly yet.
+        # 3. Merge
         stats_races = (
             df_races.join(tightness_calc, on="config_hash", how="left")
-            .join(race_comeback_score, on="config_hash", how="left")
+            .join(elasticity_calc, on="config_hash", how="left")
             .fill_null(0)
         )
-
         return df_racer_results, stats_races
 
     def _prepare_stats(processed_results, processed_races):
-        # 1. Correlations
         corr_df = (
             processed_results.group_by("racer_name")
             .agg(
@@ -1186,7 +1160,6 @@ def _(
             .fill_nan(0)
         )
 
-        # 2. Main Aggregations
         base_stats = (
             processed_results.with_columns(
                 pl.when(pl.col("turns_taken") > 0)
@@ -1198,10 +1171,9 @@ def _(
                 .otherwise(None)
                 .alias("safe_vp"),
             )
-            # JOIN RACE STATS: This repeats the Race Score for every participant
             .join(
                 processed_races.select(
-                    ["config_hash", "race_tightness_score", "race_comeback_score"]
+                    ["config_hash", "race_tightness_score", "race_elasticity_score"]
                 ),
                 on="config_hash",
                 how="left",
@@ -1209,27 +1181,26 @@ def _(
             .group_by("racer_name")
             .agg(
                 [
-                    # Score
                     pl.col("final_vp").mean().alias("mean_vp"),
                     pl.col("final_vp").var().alias("var_vp"),
-                    # --- NEW METRICS (Averaged) ---
-                    # Answers: "When this racer plays, how tight is the race on average?"
                     pl.col("race_tightness_score").mean().alias("avg_race_tightness"),
-                    # Answers: "When this racer plays, how big are the comebacks on average?"
-                    pl.col("race_comeback_score").mean().alias("avg_race_comeback"),
-                    # Speed / Game Stats
+                    pl.col("race_elasticity_score").mean().alias("avg_race_elasticity"),
                     pl.col("turns_taken").mean().alias("avg_turns"),
                     (pl.col("recovery_turns") / pl.col("safe_turns"))
                     .mean()
                     .alias("recovery_rate"),
-                    # Win/Place
                     (pl.col("rank") == 1).sum().alias("cnt_1st"),
                     (pl.col("rank") == 2).sum().alias("cnt_2nd"),
                     pl.len().alias("races_run"),
-                    # Passthroughs
                     (pl.col("ability_trigger_count") / pl.col("safe_turns"))
                     .mean()
                     .alias("triggers_per_turn"),
+                    (pl.col("ability_self_target_count") / pl.col("safe_turns"))
+                    .mean()
+                    .alias("self_per_turn"),
+                    (pl.col("ability_target_count") / pl.col("safe_turns"))
+                    .mean()
+                    .alias("target_per_turn"),
                     (pl.col("sum_dice_rolled") / pl.col("safe_turns"))
                     .mean()
                     .alias("dice_per_turn"),
@@ -1239,7 +1210,6 @@ def _(
                 ]
             )
         )
-
         return base_stats.join(corr_df, on="racer_name", how="left").with_columns(
             [
                 (pl.col("cnt_1st") / pl.col("races_run")).alias("pct_1st"),
@@ -1248,79 +1218,142 @@ def _(
         )
 
     def _build_quadrant_chart(
-        stats_df, racers, colors, x_col, y_col, title, x_title, y_title, reverse_x=False
+        stats_df,
+        racers,
+        colors,
+        x_col,
+        y_col,
+        title,
+        x_title,
+        y_title,
+        reverse_x=False,
+        quad_labels=None,
     ):
-        min_x, max_x = stats_df[x_col].min(), stats_df[x_col].max()
-        min_y, max_y = stats_df[y_col].min(), stats_df[y_col].max()
+        vals_x = stats_df[x_col].drop_nulls().to_list()
+        vals_y = stats_df[y_col].drop_nulls().to_list()
 
-        # Padding
-        pad_x = (max_x - min_x) * 0.1 if max_x != min_x else 1.0
-        pad_y = (max_y - min_y) * 0.1 if max_y != min_y else 1.0
+        if not vals_x or not vals_y:
+            return alt.Chart(stats_df).mark_text(text="No Data")
 
-        # Domains
-        domain_x = [min_x - pad_x, max_x + pad_x]
-        domain_y = [min_y - pad_y, max_y + pad_y]
+        min_x, max_x = min(vals_x), max(vals_x)
+        min_y, max_y = min(vals_y), max(vals_y)
 
-        if reverse_x:
-            domain_x = domain_x[::-1]
+        if min_x == max_x:
+            max_x += 0.1
+            min_x -= 0.1
+        if min_y == max_y:
+            max_y += 0.1
+            min_y -= 0.1
 
-        base = alt.Chart(stats_df).encode(
-            color=alt.Color("racer_name", scale=alt.Scale(domain=racers, range=colors))
-        )
+        pad_x = (max_x - min_x) * 0.15
+        pad_y = (max_y - min_y) * 0.15
+
+        view_min_x, view_max_x = min_x - pad_x, max_x + pad_x
+        view_min_y, view_max_y = min_y - pad_y, max_y + pad_y
+
+        domain_x = [view_min_x, view_max_x]
+        domain_y = [view_min_y, view_max_y]
 
         mid_x = (min_x + max_x) / 2
         mid_y = (min_y + max_y) / 2
 
+        # --- LAYERS ---
+        base = alt.Chart(stats_df).encode(
+            color=alt.Color(
+                "racer_name", scale=alt.Scale(domain=racers, range=colors), legend=None
+            )
+        )
+
         h_line = (
             alt.Chart(pl.DataFrame({"y": [mid_y]}))
-            .mark_rule(strokeDash=[5, 5], color="gray")
+            .mark_rule(strokeDash=[4, 4], color="#888")
             .encode(y="y")
         )
         v_line = (
             alt.Chart(pl.DataFrame({"x": [mid_x]}))
-            .mark_rule(strokeDash=[5, 5], color="gray")
+            .mark_rule(strokeDash=[4, 4], color="#888")
             .encode(x="x")
         )
 
-        points = base.mark_circle(size=150).encode(
-            x=alt.X(x_col, title=x_title, scale=alt.Scale(domain=domain_x)),
-            y=alt.Y(y_col, title=y_title, scale=alt.Scale(domain=domain_y)),
+        points = base.mark_circle(size=150, opacity=0.9).encode(
+            x=alt.X(
+                x_col,
+                title=x_title,
+                scale=alt.Scale(domain=domain_x, reverse=reverse_x, zero=False),
+            ),
+            y=alt.Y(y_col, title=y_title, scale=alt.Scale(domain=domain_y, zero=False)),
             tooltip=["racer_name", x_col, y_col, "mean_vp"],
         )
-        return (h_line + v_line + points).properties(title=title, width=500, height=350)
 
-    # --- RESTORED: Game Length Chart ---
-    def _build_game_length_chart(df_races):
-        gl_stats = (
-            df_races.group_by(["board", "racer_count"])
-            .agg(pl.col("total_turns").mean().alias("avg_duration"))
-            .sort(["board", "racer_count"])
-        )
-        return (
-            alt.Chart(gl_stats)
-            .mark_bar()
-            .encode(
-                x=alt.X("racer_count:O", title="Number of Racers"),
-                y=alt.Y("avg_duration", title="Avg Turns to Finish"),
-                column=alt.Column("board", title="Board Map"),
-                color=alt.Color("board", legend=None),
-                tooltip=["board", "racer_count", "avg_duration"],
+        chart = h_line + v_line + points
+
+        if quad_labels and len(quad_labels) == 4:
+            if reverse_x:
+                left_x = view_max_x - (pad_x * 0.5)
+                right_x = view_min_x + (pad_x * 0.5)
+            else:
+                left_x = view_min_x + (pad_x * 0.5)
+                right_x = view_max_x - (pad_x * 0.5)
+
+            top_y = view_max_y - (pad_y * 0.5)
+            bot_y = view_min_y + (pad_y * 0.5)
+
+            # Bright text color for dark mode
+            text_props = {
+                "fontWeight": "bold",
+                "opacity": 0.6,
+                "fontSize": 11,
+                "color": "#e0e0e0",
+            }
+
+            t1 = (
+                alt.Chart(
+                    pl.DataFrame({"x": [left_x], "y": [top_y], "t": [quad_labels[0]]})
+                )
+                .mark_text(align="left", baseline="top", **text_props)
+                .encode(x="x", y="y", text="t")
             )
-            .properties(title="Game Duration Analysis", width=150, height=300)
-        )
+
+            t2 = (
+                alt.Chart(
+                    pl.DataFrame({"x": [right_x], "y": [top_y], "t": [quad_labels[1]]})
+                )
+                .mark_text(align="right", baseline="top", **text_props)
+                .encode(x="x", y="y", text="t")
+            )
+
+            t3 = (
+                alt.Chart(
+                    pl.DataFrame({"x": [left_x], "y": [bot_y], "t": [quad_labels[2]]})
+                )
+                .mark_text(align="left", baseline="bottom", **text_props)
+                .encode(x="x", y="y", text="t")
+            )
+
+            t4 = (
+                alt.Chart(
+                    pl.DataFrame({"x": [right_x], "y": [bot_y], "t": [quad_labels[3]]})
+                )
+                .mark_text(align="right", baseline="bottom", **text_props)
+                .encode(x="x", y="y", text="t")
+            )
+
+            chart = chart + t1 + t2 + t3 + t4
+
+        # FIX 1: Taller height for better aspect ratio
+        return chart.properties(title=title, width="container", height=450)
 
     # --- Execution ---
     if df_racer_results.height == 0:
         final_output = mo.md("⚠️ **No results loaded.**")
     else:
-        # 1. Metrics
         proc_results, proc_races = _calculate_advanced_metrics()
         stats = _prepare_stats(proc_results, proc_races)
 
         r_list = stats["racer_name"].unique().to_list()
         c_list = [get_racer_color(r) for r in r_list]
 
-        # 2. Charts
+        # 1. Charts
         c_consist = _build_quadrant_chart(
             stats,
             r_list,
@@ -1328,9 +1361,15 @@ def _(
             "var_vp",
             "mean_vp",
             "Consistency",
-            "Consistency (Lower Var →)",
+            "Variance (Lower is Better →)",
             "Avg VP",
             reverse_x=True,
+            quad_labels=[
+                "Wildcard",
+                "Reliable Winner",
+                "Volatile Loser",
+                "Consistently Poor",
+            ],
         )
         c_ability = _build_quadrant_chart(
             stats,
@@ -1342,6 +1381,12 @@ def _(
             "Triggers/Turn",
             "Impact Score",
             reverse_x=False,
+            quad_labels=[
+                "Clutch / Sniper",
+                "Core Engine",
+                "Ineffective",
+                "Noisy / Spam",
+            ],
         )
         c_dice = _build_quadrant_chart(
             stats,
@@ -1353,24 +1398,44 @@ def _(
             "Dice/Turn",
             "Impact Score",
             reverse_x=False,
+            quad_labels=["Efficient", "Power Roller", "Weak", "Empty Calories"],
         )
-
-        # NEW: Excitement Profile
-        # X: Tightness (Low = Close Race)
-        # Y: Comeback (High = Big Swings)
         c_excitement = _build_quadrant_chart(
             stats,
             r_list,
             c_list,
             "avg_race_tightness",
-            "avg_race_comeback",
+            "avg_race_elasticity",
             "Excitement Profile",
-            "Avg Race Tightness (Left=Tighter)",
-            "Avg Max Comeback (Up=Bigger)",
+            "Avg Race Tightness (Lower/Right = Tighter)",
+            "Elasticity (Up = Bigger Swings)",
             reverse_x=True,
+            quad_labels=[
+                "Rubber Band",
+                "Epic Thriller",
+                "Boring Blowout",
+                "Nail-Biter",
+            ],
         )
 
-        c_len = _build_game_length_chart(proc_races)
+        # FIX 2: Fixed width per facet (prevents overflow)
+        gl_stats = (
+            df_races.group_by(["board", "racer_count"])
+            .agg(pl.col("total_turns").mean().alias("avg"))
+            .sort(["board", "racer_count"])
+        )
+        c_len = (
+            alt.Chart(gl_stats)
+            .mark_bar()
+            .encode(
+                x=alt.X("racer_count:O", title="Racers"),
+                y=alt.Y("avg", title="Turns"),
+                column="board",
+                color=alt.Color("board", legend=None),
+                tooltip=["avg"],
+            )
+            .properties(title="Game Duration", width=120, height=350)
+        )
 
         charts_ui = mo.ui.tabs(
             {
@@ -1380,26 +1445,72 @@ def _(
                 "🎲 Dice Value": mo.ui.altair_chart(c_dice),
                 "⏳ Game Length": mo.ui.altair_chart(c_len),
             }
-        ).style({"min-height": "450px", "width": "100%"})
+        )
 
-        display_df = stats.select(
+        # 2. Data Tables
+        master_df = stats.sort("mean_vp", descending=True)
+
+        df_overview = master_df.select(
             [
                 pl.col("racer_name").alias("Racer"),
                 pl.col("mean_vp").round(2).alias("Avg VP"),
-                pl.col("avg_race_comeback").round(1).alias("Avg Comeback"),
-                pl.col("avg_race_tightness").round(2).alias("Avg Tightness"),
-                pl.col("ability_impact_score").round(2).alias("Abil Imp"),
-                (pl.col("pct_1st") * 100).round(1).alias("1st %"),
+                (pl.col("pct_1st") * 100).round(1).alias("Win %"),
+                (pl.col("pct_2nd") * 100).round(1).alias("2nd %"),
+                pl.col("races_run").alias("Races"),
             ]
-        ).sort("Avg VP", descending=True)
-
-        table_ui = mo.ui.table(display_df, selection=None, page_size=10)
-
-        final_output = mo.hstack(
-            [charts_ui, mo.vstack([mo.md("### 🔢 Aggregate Stats"), table_ui])],
-            widths=[5, 5],
-            gap=2,
         )
+
+        df_dynamics = master_df.select(
+            [
+                pl.col("racer_name").alias("Racer"),
+                pl.col("avg_race_elasticity").round(1).alias("Elasticity"),
+                pl.col("avg_race_tightness").round(2).alias("Tightness"),
+                pl.col("avg_turns").round(1).alias("Avg Turns"),
+                pl.col("var_vp").round(1).alias("VP Var"),
+            ]
+        )
+
+        df_abilities = master_df.select(
+            [
+                pl.col("racer_name").alias("Racer"),
+                pl.col("ability_impact_score").round(2).alias("Impact Score"),
+                pl.col("triggers_per_turn").round(2).alias("Trig/Turn"),
+                pl.col("self_per_turn").round(2).alias("Self/Turn"),
+                pl.col("target_per_turn").round(2).alias("Tgt/Turn"),
+            ]
+        )
+
+        df_dice = master_df.select(
+            [
+                pl.col("racer_name").alias("Racer"),
+                pl.col("dice_impact_score").round(2).alias("Impact Score"),
+                pl.col("dice_per_turn").round(1).alias("Avg Roll"),
+                pl.col("dice_per_vp").round(1).alias("Dice/VP Eff"),
+                pl.col("recovery_rate").round(2).alias("Trip Rate"),
+            ]
+        )
+
+        data_tabs = mo.ui.tabs(
+            {
+                "🏆 Overview": mo.ui.table(df_overview, selection=None, page_size=10),
+                "🔥 Dynamics": mo.ui.table(df_dynamics, selection=None, page_size=10),
+                "⚡ Abilities": mo.ui.table(df_abilities, selection=None, page_size=10),
+                "🎲 Dice": mo.ui.table(df_dice, selection=None, page_size=10),
+            }
+        )
+
+        # FIX 3: CSS Grid Layout with min-width: 0 to prevent overflow
+        final_output = mo.md(f"""
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; width: 100%;">
+            <div style="min-width: 0;">
+                {charts_ui}
+            </div>
+            <div style="min-width: 0; overflow-x: auto;">
+                {data_tabs}
+            </div>
+        </div>
+        """)
+
     final_output
     return
 
