@@ -1298,7 +1298,6 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             top_y = view_max_y - (pad_y * 0.5)
             bot_y = view_min_y + (pad_y * 0.5)
 
-            # Bright text color for dark mode
             text_props = {
                 "fontWeight": "bold",
                 "opacity": 0.6,
@@ -1340,10 +1339,10 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
 
             chart = chart + t1 + t2 + t3 + t4
 
-        # FIX 1: Taller height for better aspect ratio
-        return chart.properties(title=title, width="container", height=450)
+        # FIX 1: Fixed Square Ratio
+        return chart.properties(title=title, width=680, height=680)
 
-    # --- Execution ---
+    # --- Execution --
     if df_racer_results.height == 0:
         final_output = mo.md("⚠️ **No results loaded.**")
     else:
@@ -1418,7 +1417,6 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             ],
         )
 
-        # FIX 2: Fixed width per facet (prevents overflow)
         gl_stats = (
             df_races.group_by(["board", "racer_count"])
             .agg(pl.col("total_turns").mean().alias("avg"))
@@ -1434,8 +1432,8 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                 color=alt.Color("board", legend=None),
                 tooltip=["avg"],
             )
-            .properties(title="Game Duration", width=120, height=350)
-        )
+            .properties(title="Game Duration", width=120, height=400)
+        )  # Match height 400
 
         charts_ui = mo.ui.tabs(
             {
@@ -1499,13 +1497,15 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             }
         )
 
-        # FIX 3: CSS Grid Layout with min-width: 0 to prevent overflow
+        # FIX 2 & 3: Flex-Wrap Layout with Fixed Heights
+        # flex-wrap: wrap -> allows right column to drop below left column on small screens
+        # min-height: 550px -> reserves vertical space to prevent jumping when tabs switch
         final_output = mo.md(f"""
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; width: 100%;">
-            <div style="min-width: 0;">
+        <div style="display: flex; flex-wrap: wrap; gap: 2rem; width: 100%; min-height: 550px;">
+            <div style="flex: 1 1 450px; min-width: 0; display: flex; justify-content: center; align-items: start;">
                 {charts_ui}
             </div>
-            <div style="min-width: 0; overflow-x: auto;">
+            <div style="flex: 1 1 400px; min-width: 0; overflow-x: auto;">
                 {data_tabs}
             </div>
         </div>
