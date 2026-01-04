@@ -1602,6 +1602,7 @@ def _(
             .encode(x="x")
         )
 
+        # 1. The dots
         points = base.mark_circle(size=150, opacity=0.9).encode(
             x=alt.X(
                 x_col,
@@ -1623,7 +1624,24 @@ def _(
             ],
         )
 
-        chart = h_line + v_line + points
+        # 2. The Text Labels (UPDATED)
+        text_labels = points.mark_text(
+            align="center",
+            baseline="middle",
+            dy=-15,  # small offset above the point
+            dx=-15,
+            fontSize=15,
+            fontWeight="bold",
+            stroke="black",  # thin white outline
+            strokeWidth=0.2,  # subtle halo, not chunky
+        ).encode(
+            text="racer_name",
+            # IMPORTANT: do NOT set fill here, so it uses the same color as the points
+            # and keep the existing color encoding from `base`
+        )
+
+        # Combine chart layers
+        chart = h_line + v_line + points + text_labels
 
         if quad_labels and len(quad_labels) == 4:
             if reverse_x:
@@ -1687,7 +1705,7 @@ def _(
         interaction_matrix_df = _prepare_interaction_matrix(proc_results)
         c_env = _prepare_environment_matrix(proc_results, df_races_f)
 
-        # CREATE CHART OBJECT (This was missing!)
+        # CREATE CHART OBJECT
         c_matrix = (
             alt.Chart(interaction_matrix_df)
             .mark_rect()
@@ -1829,7 +1847,7 @@ def _(
             .mark_bar()
             .encode(
                 x=alt.X("board:N", title="Board", axis=alt.Axis(labelAngle=0)),
-                xOffset="racer_count:N",  # This creates the grouped effect
+                xOffset="racer_count:N",
                 y=alt.Y("val:Q", title=None),
                 color=alt.Color("racer_count:N", title="Players"),
                 column=alt.Column("metric:N", title=None),
@@ -1957,9 +1975,7 @@ def _(
                 ),
                 "⚔️ Interactions": mo.vstack(
                     [
-                        mo.ui.altair_chart(
-                            c_matrix
-                        ),  # FIXED: Passing Chart, not DataFrame
+                        mo.ui.altair_chart(c_matrix),
                         mo.md(
                             "How a racer performs against specific opponents compared to their global average. Blue = Better than usual, Red = Worse."
                         ),

@@ -217,5 +217,3 @@ rules.md
 .gitignore
 
 *.duckdb
-*.duckdb*
-results/simulation.duckdb
