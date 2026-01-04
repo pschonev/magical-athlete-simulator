@@ -2,7 +2,7 @@ import heapq
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 
 from magical_athlete_simulator.ai.smart_agent import SmartAgent
@@ -29,6 +29,7 @@ from magical_athlete_simulator.core.mixins import (
 )
 from magical_athlete_simulator.core.registry import RACER_ABILITIES
 from magical_athlete_simulator.engine.logging import ContextFilter
+from magical_athlete_simulator.engine.loop_detection import check_for_loops
 from magical_athlete_simulator.engine.movement import (
     handle_move_cmd,
     handle_simultaneous_move_cmd,
@@ -74,7 +75,7 @@ class GameEngine:
     agents: dict[int, Agent] = field(default_factory=dict)
 
     # Callback for external observers
-    on_event_processed: Callable[[GameEngine, GameEvent], None] | None = None
+    on_event_processed: Callable[[Self, GameEvent], None] | None = None
     verbose: bool = True
     _logger: logging.Logger = field(init=False, repr=False)
 
@@ -101,7 +102,10 @@ class GameEngine:
             self._advance_turn()
 
     def run_turn(self):
-        self.state.history.clear()
+        """Enhanced turn loop with multi-level loop detection."""
+        self.state.loop_detection.clear_for_new_turn()
+        self.state.history.clear()  # Keep your existing history for Level 1
+
         cr = self.state.current_racer_idx
         racer = self.state.racers[cr]
         racer.reroll_count = 0
@@ -110,6 +114,7 @@ class GameEngine:
         self.log_info(f"=== START TURN: {racer.repr} ===")
         racer.main_move_consumed = False
 
+        # Setup initial events (your existing code)
         if racer.tripped:
             self.log_info(f"{racer.repr} recovers from Trip.")
             racer.tripped = False
@@ -144,25 +149,21 @@ class GameEngine:
                 ),
             )
 
+        # Main event processing loop
         while self.state.queue and not self.state.race_over:
-            # 1. Snapshot the FULL state (racers + board + queue semantics)
-            current_hash = self.state.get_state_hash()
+            sched = heapq.heappop(self.state.queue)
 
-            # 2. Check for cycle
-            if current_hash in self.state.history:
-                # FIX: Instead of breaking the whole turn, we surgically remove the
-                # event that is causing the recursion/loop. This effectively "prunes"
-                # the infinite branch while leaving other pending events intact.
-                skipped_sched = heapq.heappop(self.state.queue)
+            # Run multi-level loop detection
+            should_skip, reason = check_for_loops(self, sched)
+
+            if should_skip:
                 self.log_warning(
-                    f"Infinite loop detected (state cycle). Dropping recursive event: {skipped_sched.event}"
+                    f"Loop detected: {reason}. Skipping event: {sched.event}",
                 )
+                # Continue to next event without processing this one
                 continue
 
-            self.state.history.add(current_hash)
-
-            # 3. Proceed
-            sched = heapq.heappop(self.state.queue)
+            # Process the event normally
             self.current_processing_event = sched
             self._handle_event(sched.event)
 
