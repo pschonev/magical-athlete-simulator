@@ -1142,7 +1142,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
 
         df_long = unpivot_positions(df_positions)
 
-        # 1. Tightness & Elasticity
+        # 1. Tightness (existing)
         turn_stats = df_long.group_by(["config_hash", "turn_index"]).agg(
             pl.col("position").mean().alias("mean_pos")
         )
@@ -1153,24 +1153,38 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             .agg(pl.col("dev").mean().alias("race_tightness_score"))
         )
 
-        leader_stats = df_long.group_by(["config_hash", "turn_index"]).agg(
-            pl.col("position").max().alias("leader_pos")
-        )
-        elasticity_calc = (
-            df_long.join(leader_stats, on=["config_hash", "turn_index"])
-            .with_columns((pl.col("leader_pos") - pl.col("position")).alias("deficit"))
-            .group_by(["config_hash", "racer_id"])
-            .agg(pl.col("deficit").max().alias("max_def"))
+        # 2. NEW: Volatility (how often ranks change from turn to turn)
+        # Compute rank within each (race, turn) from position (higher position => better rank = 1).
+        volatility_calc = (
+            df_long.with_columns(
+                pl.col("position")
+                .rank(method="dense", descending=True)
+                .over(["config_hash", "turn_index"])
+                .alias("rank_now")
+            )
+            .sort(["config_hash", "racer_id", "turn_index"])
+            .with_columns(
+                pl.col("rank_now")
+                .shift(1)
+                .over(["config_hash", "racer_id"])
+                .alias("rank_prev")
+            )
+            .filter(pl.col("rank_prev").is_not_null())
+            .with_columns(
+                (pl.col("rank_now") != pl.col("rank_prev"))
+                .cast(pl.Int8)
+                .alias("rank_changed")
+            )
             .group_by("config_hash")
-            .agg(pl.col("max_def").mean().alias("race_elasticity_score"))
+            .agg(pl.col("rank_changed").mean().alias("race_volatility_score"))
         )
 
-        # 3. Final Distance
+        # 3. Final Distance (existing)
         final_dist_calc = df_long.group_by(["config_hash", "racer_id"]).agg(
             pl.col("position").max().alias("final_distance")
         )
 
-        # 4. Race Level Aggregates
+        # 4. Race Level Aggregates (existing)
         race_environment_stats = df_racer_results.group_by("config_hash").agg(
             [
                 (
@@ -1182,10 +1196,10 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             ]
         )
 
-        # 5. Merge
+        # 5. Merge (UPDATED: join volatility instead of elasticity)
         stats_races = (
             df_races.join(tightness_calc, on="config_hash", how="left")
-            .join(elasticity_calc, on="config_hash", how="left")
+            .join(volatility_calc, on="config_hash", how="left")
             .join(race_environment_stats, on="config_hash", how="left")
             .fill_null(0)
         )
@@ -1236,7 +1250,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                     [
                         "config_hash",
                         "race_tightness_score",
-                        "race_elasticity_score",
+                        "race_volatility_score",
                         "race_avg_triggers",
                         "race_avg_trip_rate",
                         "total_turns",
@@ -1255,7 +1269,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                     pl.len().alias("races_run"),
                     # Dynamics
                     pl.col("race_tightness_score").mean().alias("avg_race_tightness"),
-                    pl.col("race_elasticity_score").mean().alias("avg_race_elasticity"),
+                    pl.col("race_volatility_score").mean().alias("avg_race_volatility"),
                     pl.col("turns_taken").mean().alias("avg_turns"),
                     pl.col("total_turns").mean().alias("avg_game_duration"),
                     pl.col("race_avg_triggers").mean().alias("avg_env_triggers"),
@@ -1285,6 +1299,13 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                     .alias("dice_per_vp"),
                 ]
             )
+        )
+
+        return base_stats.join(corr_df, on="racer_name", how="left").with_columns(
+            [
+                (pl.col("cnt_1st") / pl.col("races_run")).alias("pct_1st"),
+                (pl.col("cnt_2nd") / pl.col("races_run")).alias("pct_2nd"),
+            ]
         )
 
         return base_stats.join(corr_df, on="racer_name", how="left").with_columns(
@@ -1561,18 +1582,19 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             r_list,
             c_list,
             x_col="avg_race_tightness",
-            y_col="avg_race_elasticity",
+            y_col="avg_race_volatility",
             title="Excitement Profile",
             x_title="Tightness (Right = Tighter)",
-            y_title="Elasticity",
+            y_title="Volatility (Rank Changes Rate)",
             reverse_x=True,
             quad_labels=[
-                "Rubber Band",
+                "Rubber Band / Chaos",
                 "Epic Thriller",
-                "Boring Blowout",
-                "Nail-Biter",
+                "Procession",
+                "Gridlock / Stalemate",
             ],
         )
+
         c_ability = _build_quadrant_chart(
             stats,
             r_list,
@@ -1687,7 +1709,8 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
         df_dynamics = master_df.select(
             [
                 pl.col("racer_name").alias("Racer"),
-                pl.col("avg_race_elasticity").round(1).alias("Elasticity"),
+                # UPDATED: Select Volatility instead of Elasticity
+                pl.col("avg_race_volatility").round(2).alias("Volatility"),
                 pl.col("avg_race_tightness").round(2).alias("Tightness"),
                 pl.col("avg_turns").round(1).alias("Avg Turns"),
                 pl.col("avg_game_duration").round(1).alias("Avg Game Len"),
@@ -1695,6 +1718,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                 (pl.col("avg_env_trip_rate") * 100).round(1).alias("Race Trip%"),
             ]
         )
+
         df_abilities = master_df.select(
             [
                 pl.col("racer_name").alias("Racer"),
