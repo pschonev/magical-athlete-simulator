@@ -11,6 +11,7 @@ from magical_athlete_simulator.simulation.db.models import (
     Race,
     RacerResult,
 )
+import pyarrow as pa
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -129,55 +130,63 @@ class SimulationDatabase:
 
     def flush_to_parquet(self):
         """
-        Flushes buffers to DuckDB using native bulk insert.
-        Ignores duplicates (INSERT OR IGNORE) to prevent crashing on re-runs.
+        Flushes buffers to DuckDB using PyArrow for high-speed bulk ingestion.
         """
-        if not self._race_buffer:
+        if not self._race_buffer and not self._position_buffer_cols["config_hash"]:
             return
 
         try:
-            # 1. Races
+            # --- 1. RACES (Metadata) ---
+            # These are usually small enough that row-processing is "fine",
+            # but let's be consistent and fast.
             if self._race_buffer:
-                race_keys = Race.model_fields.keys()
-                # Convert dicts to list of values
-                race_tuples = [[r[k] for k in race_keys] for r in self._race_buffer]
-                placeholders = ",".join(["?"] * len(race_keys))
+                # Convert list of dicts -> Arrow Table
+                table = pa.Table.from_pylist(self._race_buffer)
 
-                self.raw_conn.executemany(
-                    f"INSERT OR IGNORE INTO races ({','.join(race_keys)}) VALUES ({placeholders})",
-                    race_tuples,
+                # Register as a temporary view in DuckDB
+                self.raw_conn.register("temp_races_buffer", table)
+
+                # Bulk Insert
+                self.raw_conn.execute(
+                    "INSERT OR IGNORE INTO races SELECT * FROM temp_races_buffer"
                 )
 
-            # 2. Results
+                # Cleanup
+                self.raw_conn.unregister("temp_races_buffer")
+
+            # --- 2. RESULTS ---
             if self._result_buffer:
-                res_keys = RacerResult.model_fields.keys()
-                res_tuples = [[r[k] for k in res_keys] for r in self._result_buffer]
-                placeholders = ",".join(["?"] * len(res_keys))
-
-                self.raw_conn.executemany(
-                    f"INSERT OR IGNORE INTO racer_results ({','.join(res_keys)}) VALUES ({placeholders})",
-                    res_tuples,
+                table = pa.Table.from_pylist(self._result_buffer)
+                self.raw_conn.register("temp_results_buffer", table)
+                self.raw_conn.execute(
+                    "INSERT OR IGNORE INTO racer_results SELECT * FROM temp_results_buffer"
                 )
+                self.raw_conn.unregister("temp_results_buffer")
 
-            # 3. Positions
+            # --- 3. POSITIONS (The Big One) ---
+            # Your buffer is ALREADY columnar (dict of lists).
+            # PyArrow loves this. No zip() or looping required.
             if self._position_buffer_cols["config_hash"]:
-                keys = list(self._position_buffer_cols.keys())
-                values = list(zip(*[self._position_buffer_cols[k] for k in keys]))
-                placeholders = ",".join(["?"] * len(keys))
+                # Ensure the dict is clean for Arrow
+                # (pa.Table.from_pydict is incredibly fast)
+                table = pa.Table.from_pydict(self._position_buffer_cols)
 
-                self.raw_conn.executemany(
-                    f"INSERT OR IGNORE INTO race_position_logs ({','.join(keys)}) VALUES ({placeholders})",
-                    values,
+                self.raw_conn.register("temp_pos_buffer", table)
+
+                # Bulk insert millions of rows in milliseconds
+                self.raw_conn.execute(
+                    "INSERT OR IGNORE INTO race_position_logs SELECT * FROM temp_pos_buffer"
                 )
 
-            # Manually commit if needed (DuckDB in Python usually auto-commits DDL/DML outside transaction blocks)
-            # but explicit commit ensures safety.
+                self.raw_conn.unregister("temp_pos_buffer")
+
+            # Commit
             self.raw_conn.commit()
 
         except Exception as e:
             logger.error(f"Failed to flush to DB: {e}")
-            # No rollback needed here for simple insert errors in auto-commit mode,
-            # and 'no transaction active' error suggests we shouldn't force it.
+            # If Arrow conversion fails, you might want to log the specific data causing it
+            raise e
 
         # Clear buffers
         self._race_buffer.clear()
