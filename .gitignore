@@ -214,3 +214,7 @@ __marimo__/
 rules.md
 *.parquet
 
+.gitignore
+
+*.duckdb
+*.duckdb*
