@@ -444,7 +444,7 @@ def _(
         return value
 
     scenario_seed = mo.ui.number(
-        start=1,
+        start=0,
         stop=10000,
         value=get_seed(),
         label="Random Seed",
@@ -1142,7 +1142,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
 
         df_long = unpivot_positions(df_positions)
 
-        # 1. Tightness (existing)
+        # 1. Tightness (Deviation from mean position)
         turn_stats = df_long.group_by(["config_hash", "turn_index"]).agg(
             pl.col("position").mean().alias("mean_pos")
         )
@@ -1153,8 +1153,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             .agg(pl.col("dev").mean().alias("race_tightness_score"))
         )
 
-        # 2. NEW: Volatility (how often ranks change from turn to turn)
-        # Compute rank within each (race, turn) from position (higher position => better rank = 1).
+        # 2. Volatility (Rank swaps per turn)
         volatility_calc = (
             df_long.with_columns(
                 pl.col("position")
@@ -1179,12 +1178,12 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             .agg(pl.col("rank_changed").mean().alias("race_volatility_score"))
         )
 
-        # 3. Final Distance (existing)
+        # 3. Final Distance
         final_dist_calc = df_long.group_by(["config_hash", "racer_id"]).agg(
             pl.col("position").max().alias("final_distance")
         )
 
-        # 4. Race Level Aggregates (existing)
+        # 4. Race Level Aggregates
         race_environment_stats = df_racer_results.group_by("config_hash").agg(
             [
                 (
@@ -1196,7 +1195,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             ]
         )
 
-        # 5. Merge (UPDATED: join volatility instead of elasticity)
+        # 5. Merge
         stats_races = (
             df_races.join(tightness_calc, on="config_hash", how="left")
             .join(volatility_calc, on="config_hash", how="left")
@@ -1308,14 +1307,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             ]
         )
 
-        return base_stats.join(corr_df, on="racer_name", how="left").with_columns(
-            [
-                (pl.col("cnt_1st") / pl.col("races_run")).alias("pct_1st"),
-                (pl.col("cnt_2nd") / pl.col("races_run")).alias("pct_2nd"),
-            ]
-        )
-
-    # --- Interaction Heatmap Logic ---
+    # --- HEATMAP HELPERS ---
     def _prepare_interaction_matrix(processed_results):
         global_means = processed_results.group_by("racer_name").agg(
             pl.col("final_vp").mean().alias("global_mean_vp")
@@ -1324,12 +1316,10 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
         opponents = processed_results.select(
             [pl.col("config_hash"), pl.col("racer_name").alias("opponent_name")]
         )
-
         pairs = subjects.join(opponents, on="config_hash", how="inner").filter(
             pl.col("racer_name") != pl.col("opponent_name")
         )
-
-        matrix = (
+        return (
             pairs.group_by(["racer_name", "opponent_name"])
             .agg(pl.col("final_vp").mean().alias("avg_vp_with_opponent"))
             .join(global_means, on="racer_name", how="left")
@@ -1341,20 +1331,13 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             )
             .sort(["racer_name", "opponent_name"])
         )
-        return matrix
 
-    # --- Environment (Board+Count) Heatmap Logic ---
     def _prepare_environment_matrix(processed_results, df_races):
-        # 1. Join to get Board and Racer Count
         race_meta = df_races.select(["config_hash", "board", "racer_count"])
         joined = processed_results.join(race_meta, on="config_hash", how="inner")
-
-        # 2. Per-Racer Baseline (Each racer's global average VP)
         racer_baselines = joined.group_by("racer_name").agg(
             pl.col("final_vp").mean().alias("racer_global_avg_vp")
         )
-
-        # 3. Conditional Aggregation (Racer + Board + Count)
         env_stats = (
             joined.group_by(["racer_name", "board", "racer_count"])
             .agg(
@@ -1366,12 +1349,10 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             .join(racer_baselines, on="racer_name", how="left")
             .with_columns(
                 [
-                    # Shift = (Conditional - Racer's Own Avg) / Racer's Own Avg
                     (
                         (pl.col("cond_avg_vp") - pl.col("racer_global_avg_vp"))
                         / pl.col("racer_global_avg_vp")
                     ).alias("relative_shift"),
-                    # Combined Label for X-Axis
                     (
                         pl.col("board").cast(pl.String)
                         + " ("
@@ -1381,8 +1362,6 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                 ]
             )
         )
-
-        # 4. Sort Order: Board First, then Racer Count
         sort_order = (
             env_stats.select(["env_label", "board", "racer_count"])
             .unique()
@@ -1390,7 +1369,6 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             .get_column("env_label")
             .to_list()
         )
-
         c_env = (
             alt.Chart(env_stats)
             .mark_rect()
@@ -1414,7 +1392,6 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                     alt.Tooltip("cond_avg_vp", format=".2f", title="Env VP"),
                     alt.Tooltip("racer_global_avg_vp", format=".2f", title="Own Avg"),
                     alt.Tooltip("relative_shift", format="+.1%", title="Shift"),
-                    alt.Tooltip("sample_size", title="Games"),
                 ],
             )
             .properties(
@@ -1425,6 +1402,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
         )
         return c_env
 
+    # --- CHART HELPERS ---
     def _build_quadrant_chart(
         stats_df,
         racers,
@@ -1455,19 +1433,15 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
 
         pad_x = (max_x - min_x) * 0.15
         pad_y = (max_y - min_y) * 0.15
-
         view_min_x, view_max_x = min_x - pad_x, max_x + pad_x
         view_min_y, view_max_y = min_y - pad_y, max_y + pad_y
-
-        domain_x = [view_min_x, view_max_x]
-        domain_y = [view_min_y, view_max_y]
-
-        mid_x = (min_x + max_x) / 2
-        mid_y = (min_y + max_y) / 2
+        mid_x, mid_y = (min_x + max_x) / 2, (min_y + max_y) / 2
 
         base = alt.Chart(stats_df).encode(
             color=alt.Color(
-                "racer_name", scale=alt.Scale(domain=racers, range=colors), legend=None
+                "racer_name",
+                scale=alt.Scale(domain=racers, range=colors),
+                legend=None,
             )
         )
 
@@ -1486,9 +1460,15 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             x=alt.X(
                 x_col,
                 title=x_title,
-                scale=alt.Scale(domain=domain_x, reverse=reverse_x, zero=False),
+                scale=alt.Scale(
+                    domain=[view_min_x, view_max_x], reverse=reverse_x, zero=False
+                ),
             ),
-            y=alt.Y(y_col, title=y_title, scale=alt.Scale(domain=domain_y, zero=False)),
+            y=alt.Y(
+                y_col,
+                title=y_title,
+                scale=alt.Scale(domain=[view_min_y, view_max_y], zero=False),
+            ),
             tooltip=[
                 "racer_name",
                 alt.Tooltip(x_col, format=".2f"),
@@ -1501,10 +1481,15 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
 
         if quad_labels and len(quad_labels) == 4:
             if reverse_x:
-                left_x, right_x = view_max_x - (pad_x * 0.5), view_min_x + (pad_x * 0.5)
+                left_x, right_x = (
+                    view_max_x - (pad_x * 0.5),
+                    view_min_x + (pad_x * 0.5),
+                )
             else:
-                left_x, right_x = view_min_x + (pad_x * 0.5), view_max_x - (pad_x * 0.5)
-
+                left_x, right_x = (
+                    view_min_x + (pad_x * 0.5),
+                    view_max_x - (pad_x * 0.5),
+                )
             top_y, bot_y = view_max_y - (pad_y * 0.5), view_min_y + (pad_y * 0.5)
             text_props = {
                 "fontWeight": "bold",
@@ -1545,115 +1530,20 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
 
         return chart.properties(title=title, width=680, height=680)
 
-    # --- Execution --
+    # --- MAIN EXECUTION ---
     if df_racer_results.height == 0:
         final_output = mo.md("⚠️ **No results loaded.**")
     else:
         proc_results, proc_races = _calculate_advanced_metrics()
         stats = _prepare_stats(proc_results, proc_races)
 
-        # Matrix Generations
-        interaction_matrix = _prepare_interaction_matrix(proc_results)
-        environment_matrix = _prepare_environment_matrix(proc_results, df_races)
+        # Matrices (Calculations)
+        interaction_matrix_df = _prepare_interaction_matrix(proc_results)
+        c_env = _prepare_environment_matrix(proc_results, df_races)
 
-        r_list = stats["racer_name"].unique().to_list()
-        c_list = [get_racer_color(r) for r in r_list]
-
-        # --- 1. Left Charts (Scatterplots) ---
-        c_consist = _build_quadrant_chart(
-            stats,
-            r_list,
-            c_list,
-            x_col="var_vp",
-            y_col="mean_vp",
-            title="Consistency",
-            x_title="Variance (Lower is Better →)",
-            y_title="Avg VP",
-            reverse_x=True,
-            quad_labels=[
-                "Wildcard",
-                "Reliable Winner",
-                "Volatile Loser",
-                "Consistently Poor",
-            ],
-        )
-        c_excitement = _build_quadrant_chart(
-            stats,
-            r_list,
-            c_list,
-            x_col="avg_race_tightness",
-            y_col="avg_race_volatility",
-            title="Excitement Profile",
-            x_title="Tightness (Right = Tighter)",
-            y_title="Volatility (Rank Changes Rate)",
-            reverse_x=True,
-            quad_labels=[
-                "Rubber Band / Chaos",
-                "Epic Thriller",
-                "Procession",
-                "Gridlock / Stalemate",
-            ],
-        )
-
-        c_ability = _build_quadrant_chart(
-            stats,
-            r_list,
-            c_list,
-            x_col="triggers_per_turn",
-            y_col="ability_impact_score",
-            title="Ability Value",
-            x_title="Triggers/Turn",
-            y_title="Impact Score",
-            reverse_x=False,
-            quad_labels=["Clutch", "Engine", "Ineffective", "Spam"],
-        )
-        c_duration = _build_quadrant_chart(
-            stats,
-            r_list,
-            c_list,
-            x_col="avg_turns",
-            y_col="duration_pref_score",
-            title="Duration Profile (Pacing)",
-            x_title="Avg Personal Turns (Rusher -> Staller)",
-            y_title="Duration Pref (Hates Long -> Loves Long)",
-            reverse_x=False,
-            quad_labels=["Scaler", "Late Bloomer", "Rusher/Winner", "Flash in Pan"],
-        )
-
-        # CHANGED: "Movement Value" (replacing Dice Value)
-        # X: Avg Speed (Movement/Turn) - Measures engine speed
-        # Y: Dice Impact (Correlation Dice/VP) - Measures reliance on luck
-        c_movement_val = _build_quadrant_chart(
-            stats,
-            r_list,
-            c_list,
-            x_col="avg_speed",
-            y_col="dice_impact_score",
-            title="Movement vs Luck Reliance",
-            x_title="Speed (Avg Move/Turn)",
-            y_title="Dice Impact (Low = Reliable, High = Gambler)",
-            reverse_x=False,
-            quad_labels=[
-                "Dice Hungry",
-                "Nitro Junkie",
-                "Slow Farmer",
-                "Efficient Engine",
-            ],
-        )
-
-        left_charts_ui = mo.ui.tabs(
-            {
-                "🎯 Consistency": mo.ui.altair_chart(c_consist),
-                "🔥 Excitement": mo.ui.altair_chart(c_excitement),
-                "⚡ Ability Value": mo.ui.altair_chart(c_ability),
-                "⏱️ Duration": mo.ui.altair_chart(c_duration),
-                "🏃 Movement Value": mo.ui.altair_chart(c_movement_val),
-            }
-        )
-
-        # --- 2. Right Column (Visuals + Tables) ---
+        # CREATE CHART OBJECT (This was missing!)
         c_matrix = (
-            alt.Chart(interaction_matrix)
+            alt.Chart(interaction_matrix_df)
             .mark_rect()
             .encode(
                 x=alt.X("opponent_name:N", title="Opponent Present"),
@@ -1677,25 +1567,133 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             )
         )
 
-        gl_stats = (
-            df_races.group_by(["board", "racer_count"])
-            .agg(pl.col("total_turns").mean().alias("avg"))
-            .sort(["board", "racer_count"])
-        )
-        c_len = (
-            alt.Chart(gl_stats)
-            .mark_bar()
-            .encode(
-                x=alt.X("racer_count:O", title="Racers"),
-                y=alt.Y("avg", title="Turns"),
-                column="board",
-                color=alt.Color("board", legend=None),
-                tooltip=["avg"],
-            )
-            .properties(title="Game Duration", width=120, height=400)
+        r_list = stats["racer_name"].unique().to_list()
+        c_list = [get_racer_color(r) for r in r_list]
+
+        # 1. Charts
+        c_consist = _build_quadrant_chart(
+            stats,
+            r_list,
+            c_list,
+            x_col="var_vp",
+            y_col="mean_vp",
+            title="Consistency",
+            x_title="Variance (Lower is Better →)",
+            y_title="Avg VP",
+            reverse_x=True,
+            quad_labels=[
+                "Wildcard",
+                "Reliable Winner",
+                "Volatile Loser",
+                "Consistently Poor",
+            ],
         )
 
-        # Tables
+        c_excitement = _build_quadrant_chart(
+            stats,
+            r_list,
+            c_list,
+            x_col="avg_race_tightness",
+            y_col="avg_race_volatility",
+            title="Excitement Profile",
+            x_title="Tightness (Right = Tighter)",
+            y_title="Volatility (Rank Changes)",
+            reverse_x=True,
+            quad_labels=[
+                "Rubber Band / Chaos",
+                "Epic Thriller",
+                "Procession",
+                "Gridlock / Stalemate",
+            ],
+        )
+
+        c_ability = _build_quadrant_chart(
+            stats,
+            r_list,
+            c_list,
+            x_col="triggers_per_turn",
+            y_col="ability_impact_score",
+            title="Ability Value",
+            x_title="Triggers/Turn",
+            y_title="Impact Score",
+            reverse_x=False,
+            quad_labels=["Clutch", "Engine", "Ineffective", "Spam"],
+        )
+
+        c_duration = _build_quadrant_chart(
+            stats,
+            r_list,
+            c_list,
+            x_col="avg_turns",
+            y_col="duration_pref_score",
+            title="Duration Profile (Pacing)",
+            x_title="Avg Personal Turns (Rusher -> Staller)",
+            y_title="Duration Pref (Hates Long -> Loves Long)",
+            reverse_x=False,
+            quad_labels=[
+                "Scaler",
+                "Late Bloomer",
+                "Rusher/Winner",
+                "Flash in Pan",
+            ],
+        )
+
+        c_movement_val = _build_quadrant_chart(
+            stats,
+            r_list,
+            c_list,
+            x_col="avg_speed",
+            y_col="dice_impact_score",
+            title="Movement vs Luck Reliance",
+            x_title="Speed (Avg Move/Turn)",
+            y_title="Dice Impact (Low = Reliable, High = Gambler)",
+            reverse_x=False,
+            quad_labels=[
+                "Dice Hungry",
+                "Nitro Junkie",
+                "Slow Farmer",
+                "Efficient Engine",
+            ],
+        )
+
+        # Global Dynamics Chart - GROUPED BARS
+        global_agg = (
+            proc_races.join(
+                proc_results.group_by("config_hash").agg(
+                    pl.col("final_vp").mean().alias("avg_vp")
+                ),
+                on="config_hash",
+            )
+            .group_by(["board", "racer_count"])
+            .agg(
+                [
+                    pl.col("total_turns").mean().alias("Avg Turns"),
+                    pl.col("avg_vp").mean().alias("Avg VP"),
+                    pl.col("race_tightness_score").mean().alias("Tightness"),
+                    pl.col("race_avg_trip_rate").mean().alias("Trip Rate"),
+                ]
+            )
+            .unpivot(
+                index=["board", "racer_count"], variable_name="metric", value_name="val"
+            )
+        )
+
+        c_global = (
+            alt.Chart(global_agg)
+            .mark_bar()
+            .encode(
+                x=alt.X("board:N", title="Board", axis=alt.Axis(labelAngle=0)),
+                xOffset="racer_count:N",  # This creates the grouped effect
+                y=alt.Y("val:Q", title=None),
+                color=alt.Color("racer_count:N", title="Players"),
+                column=alt.Column("metric:N", title=None),
+                tooltip=["board", "racer_count", alt.Tooltip("val", format=".2f")],
+            )
+            .resolve_scale(y="independent")
+            .properties(width=100, height=250, title="Global Statistics by Map & Count")
+        )
+
+        # 2. Tables
         master_df = stats.sort("mean_vp", descending=True)
         df_overview = master_df.select(
             [
@@ -1709,7 +1707,6 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
         df_dynamics = master_df.select(
             [
                 pl.col("racer_name").alias("Racer"),
-                # UPDATED: Select Volatility instead of Elasticity
                 pl.col("avg_race_volatility").round(2).alias("Volatility"),
                 pl.col("avg_race_tightness").round(2).alias("Tightness"),
                 pl.col("avg_turns").round(1).alias("Avg Turns"),
@@ -1718,7 +1715,6 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                 (pl.col("avg_env_trip_rate") * 100).round(1).alias("Race Trip%"),
             ]
         )
-
         df_abilities = master_df.select(
             [
                 pl.col("racer_name").alias("Racer"),
@@ -1749,16 +1745,120 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             ]
         )
 
+        # 3. UI Composition (Charts with Explanations)
+        left_charts_ui = mo.ui.tabs(
+            {
+                "🎯 Consistency": mo.vstack(
+                    [
+                        mo.ui.altair_chart(c_consist),
+                        mo.md(
+                            "**X: Variance** (Consistency) vs **Y: Avg VP** (Performance). Identify reliable winners (top-left) vs volatile gamblers (right)."
+                        ),
+                    ]
+                ),
+                "🔥 Excitement": mo.vstack(
+                    [
+                        mo.ui.altair_chart(c_excitement),
+                        mo.md(
+                            "**X: Tightness** (Pack closeness) vs **Y: Volatility** (Leader changes). Top-right are 'Thrillers' (close & changing), bottom-left are 'Processions'."
+                        ),
+                    ]
+                ),
+                "⚡ Ability Value": mo.vstack(
+                    [
+                        mo.ui.altair_chart(c_ability),
+                        mo.md(
+                            "**X: Frequency** (Triggers/Turn) vs **Y: Impact** (Corr with VP). High Impact + High Freq = 'Engine'. High Freq + Low Impact = 'Spam'."
+                        ),
+                    ]
+                ),
+                "⏱️ Duration": mo.vstack(
+                    [
+                        mo.ui.altair_chart(c_duration),
+                        mo.md(
+                            "**X: Speed** (Avg turns to finish) vs **Y: Duration Pref** (Does racer win more in long games?)."
+                        ),
+                    ]
+                ),
+                "🏃 Movement Value": mo.vstack(
+                    [
+                        mo.ui.altair_chart(c_movement_val),
+                        mo.md(
+                            "**X: Speed** (Avg distance/turn) vs **Y: Luck** (Dice correlation). Top-right: Fast but lucky. Bottom-left: Slow but reliable."
+                        ),
+                    ]
+                ),
+                "🌍 Global Dynamics": mo.vstack(
+                    [
+                        mo.ui.altair_chart(c_global),
+                        mo.md(
+                            "Global averages grouped by Board and Player Count. **Tightness**: Lower is tighter. **Trip Rate**: % of turns spent recovering."
+                        ),
+                    ]
+                ),
+            }
+        )
+
         right_ui = mo.ui.tabs(
             {
-                "🏆 Overview": mo.ui.table(df_overview, selection=None, page_size=10),
-                "⚔️ Interactions": mo.ui.altair_chart(c_matrix),
-                "🌍 Environments": mo.ui.altair_chart(environment_matrix),
-                "🔥 Dynamics": mo.ui.table(df_dynamics, selection=None, page_size=10),
-                "⚡ Abilities": mo.ui.table(df_abilities, selection=None, page_size=10),
-                "🏃 Movement": mo.ui.table(df_movement, selection=None, page_size=10),
-                "💎 VP Analysis": mo.ui.table(df_vp, selection=None, page_size=10),
-                "⏳ Game Length": mo.ui.altair_chart(c_len),
+                "🏆 Overview": mo.vstack(
+                    [
+                        mo.ui.table(df_overview, selection=None, page_size=10),
+                        mo.md(
+                            "**VP Var**: Variance (Stability). **Win/2nd %**: Rate of finishing 1st/2nd."
+                        ),
+                    ]
+                ),
+                "⚔️ Interactions": mo.vstack(
+                    [
+                        mo.ui.altair_chart(
+                            c_matrix
+                        ),  # FIXED: Passing Chart, not DataFrame
+                        mo.md(
+                            "How a racer performs against specific opponents compared to their global average. Blue = Better than usual, Red = Worse."
+                        ),
+                    ]
+                ),
+                "🌍 Environments": mo.vstack(
+                    [
+                        mo.ui.altair_chart(c_env),
+                        mo.md(
+                            "Performance shift on specific Boards/Player Counts. **Relative Shift**: % better/worse than that racer's personal average."
+                        ),
+                    ]
+                ),
+                "🔥 Dynamics": mo.vstack(
+                    [
+                        mo.ui.table(df_dynamics, selection=None, page_size=10),
+                        mo.md(
+                            "**Volatility**: Rank swaps/turn. **Tightness**: Avg distance from mean pos. **Trip%**: % turns lost to stuns."
+                        ),
+                    ]
+                ),
+                "⚡ Abilities": mo.vstack(
+                    [
+                        mo.ui.table(df_abilities, selection=None, page_size=10),
+                        mo.md(
+                            "**Impact Score**: Correlation (0-1) between triggering ability and winning. **Trig/Turn**: Activations per turn."
+                        ),
+                    ]
+                ),
+                "🏃 Movement": mo.vstack(
+                    [
+                        mo.ui.table(df_movement, selection=None, page_size=10),
+                        mo.md(
+                            "**Speed**: Avg tiles per turn. **Dur Pref**: Correlation between game length and VP (Positive = Likes Long Games)."
+                        ),
+                    ]
+                ),
+                "💎 VP Analysis": mo.vstack(
+                    [
+                        mo.ui.table(df_vp, selection=None, page_size=10),
+                        mo.md(
+                            "Correlations (Impact Scores) showing what drives victory for this racer. **Dice Imp**: Reliance on high rolls."
+                        ),
+                    ]
+                ),
             }
         )
 
