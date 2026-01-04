@@ -1107,7 +1107,153 @@ def _(
 
 
 @app.cell
-def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
+def _(df_racer_results, df_races, mo):
+    # --- UI CREATION CELL ---
+
+    header = mo.md(
+        """
+        <hr style="margin: 1.25rem 0;" />
+        <h2 style="margin: 0 0 0.5rem 0;">Aggregated Dashboard</h2>
+        <div style="color: #aaa; margin-bottom: 0.75rem;">
+          Filter races by roster, board, and player count (applies to all aggregated charts/tables below).
+        </div>
+        """
+    )
+
+    all_racers = sorted(df_racer_results.get_column("racer_name").unique().to_list())
+    all_boards = sorted(df_races.get_column("board").unique().to_list())
+    all_counts = sorted(df_races.get_column("racer_count").unique().to_list())
+
+    ui_racers = mo.ui.multiselect(
+        options=all_racers,
+        value=all_racers,
+        label="Racers (roster pool)",
+    )
+    ui_counts = mo.ui.multiselect(
+        options=all_counts,
+        value=all_counts,
+        label="Racer count(s)",
+    )
+    ui_boards = mo.ui.multiselect(
+        options=all_boards,
+        value=all_boards,
+        label="Board(s)",
+    )
+
+    # Just display the UI here
+    mo.vstack(
+        [header, mo.hstack([ui_racers, ui_counts, ui_boards], justify="space-between")]
+    )
+    return ui_boards, ui_counts, ui_racers
+
+
+@app.cell
+def _(
+    df_positions,
+    df_racer_results,
+    df_races,
+    mo,
+    pl,
+    ui_boards,
+    ui_counts,
+    ui_racers,
+):
+    # --- LOGIC & FILTERING CELL ---
+
+    selected_racers = list(ui_racers.value)
+    selected_counts = list(ui_counts.value)
+    selected_boards = list(ui_boards.value)
+
+    # --- Validation ---
+    error_msg = None
+    if len(selected_boards) == 0:
+        error_msg = "Select at least one board."
+    elif len(selected_counts) == 0:
+        error_msg = "Select at least one racer count."
+    else:
+        min_required = max(selected_counts)
+        if len(selected_racers) < min_required:
+            error_msg = (
+                f"Need at least {min_required} racers selected (because max racer_count = {min_required}), "
+                f"but only {len(selected_racers)} selected."
+            )
+
+    # --- Filter Logic ---
+    if error_msg is None:
+        # 1. Filter Races by metadata (Board & Count)
+        races_bc = df_races.filter(
+            pl.col("board").is_in(selected_boards)
+            & pl.col("racer_count").is_in(selected_counts)
+        ).select(["config_hash", "board", "racer_count"])
+
+        # 2. Roster Check: Ensure all participants in the race are in 'selected_racers'
+        roster_ok = (
+            df_racer_results.join(races_bc, on="config_hash", how="inner")
+            .group_by(["config_hash", "board", "racer_count"])
+            .agg(
+                [
+                    pl.col("racer_name").n_unique().alias("n_present"),
+                    pl.col("racer_name")
+                    .is_in(selected_racers)
+                    .all()
+                    .alias("all_in_pool"),
+                ]
+            )
+            .filter(
+                pl.col("all_in_pool") & (pl.col("n_present") == pl.col("racer_count"))
+            )
+            .select(["config_hash"])
+        )
+
+        eligible_hashes = roster_ok.get_column("config_hash").unique()
+
+        df_races_f = df_races.filter(pl.col("config_hash").is_in(eligible_hashes))
+        df_racer_results_f = df_racer_results.filter(
+            pl.col("config_hash").is_in(eligible_hashes)
+        )
+        df_positions_f = df_positions.filter(
+            pl.col("config_hash").is_in(eligible_hashes)
+        )
+
+        if df_races_f.height == 0:
+            error_msg = (
+                "No data. Either no races match board/count, "
+                "or the selected racer pool excludes members of those races."
+            )
+            df_races_f = df_races.head(0)
+            df_racer_results_f = df_racer_results.head(0)
+            df_positions_f = df_positions.head(0)
+    else:
+        df_races_f = df_races.head(0)
+        df_racer_results_f = df_racer_results.head(0)
+        df_positions_f = df_positions.head(0)
+
+    # Validation Note Display
+    note = (
+        mo.md(
+            f"<div style='color:#ff6b6b; font-weight:600; margin-top:0.5rem;'>⚠ {error_msg}</div>"
+        )
+        if error_msg is not None
+        else mo.md(
+            f"<div style='color:#7ee787; font-weight:600; margin-top:0.5rem;'>✓ Using "
+            f"{df_races_f.height} races.</div>"
+        )
+    )
+
+    note
+    return df_positions_f, df_racer_results_f, df_races_f
+
+
+@app.cell
+def _(
+    alt,
+    df_positions_f,
+    df_racer_results_f,
+    df_races_f,
+    get_racer_color,
+    mo,
+    pl,
+):
     # --- ANALYTICS DASHBOARD ---
 
     def unpivot_positions(df_flat: pl.DataFrame) -> pl.DataFrame:
@@ -1137,10 +1283,10 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
         )
 
     def _calculate_advanced_metrics():
-        if df_positions.height == 0:
-            return df_racer_results, df_races
+        if df_positions_f.height == 0:
+            return df_racer_results_f, df_races_f
 
-        df_long = unpivot_positions(df_positions)
+        df_long = unpivot_positions(df_positions_f)
 
         # 1. Tightness (Deviation from mean position)
         turn_stats = df_long.group_by(["config_hash", "turn_index"]).agg(
@@ -1184,7 +1330,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
         )
 
         # 4. Race Level Aggregates
-        race_environment_stats = df_racer_results.group_by("config_hash").agg(
+        race_environment_stats = df_racer_results_f.group_by("config_hash").agg(
             [
                 (
                     pl.col("ability_trigger_count").sum() / pl.col("racer_id").count()
@@ -1197,12 +1343,12 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
 
         # 5. Merge
         stats_races = (
-            df_races.join(tightness_calc, on="config_hash", how="left")
+            df_races_f.join(tightness_calc, on="config_hash", how="left")
             .join(volatility_calc, on="config_hash", how="left")
             .join(race_environment_stats, on="config_hash", how="left")
             .fill_null(0)
         )
-        stats_results = df_racer_results.join(
+        stats_results = df_racer_results_f.join(
             final_dist_calc, on=["config_hash", "racer_id"], how="left"
         )
 
@@ -1332,8 +1478,8 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             .sort(["racer_name", "opponent_name"])
         )
 
-    def _prepare_environment_matrix(processed_results, df_races):
-        race_meta = df_races.select(["config_hash", "board", "racer_count"])
+    def _prepare_environment_matrix(processed_results, df_races_f):
+        race_meta = df_races_f.select(["config_hash", "board", "racer_count"])
         joined = processed_results.join(race_meta, on="config_hash", how="inner")
         racer_baselines = joined.group_by("racer_name").agg(
             pl.col("final_vp").mean().alias("racer_global_avg_vp")
@@ -1531,7 +1677,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
         return chart.properties(title=title, width=680, height=680)
 
     # --- MAIN EXECUTION ---
-    if df_racer_results.height == 0:
+    if df_racer_results_f.height == 0:
         final_output = mo.md("⚠️ **No results loaded.**")
     else:
         proc_results, proc_races = _calculate_advanced_metrics()
@@ -1539,7 +1685,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
 
         # Matrices (Calculations)
         interaction_matrix_df = _prepare_interaction_matrix(proc_results)
-        c_env = _prepare_environment_matrix(proc_results, df_races)
+        c_env = _prepare_environment_matrix(proc_results, df_races_f)
 
         # CREATE CHART OBJECT (This was missing!)
         c_matrix = (
@@ -1803,7 +1949,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
             {
                 "🏆 Overview": mo.vstack(
                     [
-                        mo.ui.table(df_overview, selection=None, page_size=10),
+                        mo.ui.table(df_overview, selection=None, page_size=50),
                         mo.md(
                             "**VP Var**: Variance (Stability). **Win/2nd %**: Rate of finishing 1st/2nd."
                         ),
@@ -1829,7 +1975,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                 ),
                 "🔥 Dynamics": mo.vstack(
                     [
-                        mo.ui.table(df_dynamics, selection=None, page_size=10),
+                        mo.ui.table(df_dynamics, selection=None, page_size=50),
                         mo.md(
                             "**Volatility**: Rank swaps/turn. **Tightness**: Avg distance from mean pos. **Trip%**: % turns lost to stuns."
                         ),
@@ -1837,7 +1983,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                 ),
                 "⚡ Abilities": mo.vstack(
                     [
-                        mo.ui.table(df_abilities, selection=None, page_size=10),
+                        mo.ui.table(df_abilities, selection=None, page_size=50),
                         mo.md(
                             "**Impact Score**: Correlation (0-1) between triggering ability and winning. **Trig/Turn**: Activations per turn."
                         ),
@@ -1845,7 +1991,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                 ),
                 "🏃 Movement": mo.vstack(
                     [
-                        mo.ui.table(df_movement, selection=None, page_size=10),
+                        mo.ui.table(df_movement, selection=None, page_size=50),
                         mo.md(
                             "**Speed**: Avg tiles per turn. **Dur Pref**: Correlation between game length and VP (Positive = Likes Long Games)."
                         ),
@@ -1853,7 +1999,7 @@ def _(alt, df_positions, df_racer_results, df_races, get_racer_color, mo, pl):
                 ),
                 "💎 VP Analysis": mo.vstack(
                     [
-                        mo.ui.table(df_vp, selection=None, page_size=10),
+                        mo.ui.table(df_vp, selection=None, page_size=50),
                         mo.md(
                             "Correlations (Impact Scores) showing what drives victory for this racer. **Dice Imp**: Reliance on high rolls."
                         ),
