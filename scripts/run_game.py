@@ -16,22 +16,21 @@ if TYPE_CHECKING:
 
 if __name__ == "__main__":
     roster: list[RacerName] = [
-        "PartyAnimal",
-        "Scoocher",
-        "Magician",
-        "HugeBaby",
-        "Centaur",
+        "Romantic",
         "Banana",
+        "Centaur",
+        "Magician",
+        "Scoocher",
     ]
     racers = [RacerState(i, n) for i, n in enumerate(roster)]
     engine_id = next(ENGINE_ID_COUNTER)
     eng = GameEngine(
         GameState(
             racers=racers,
-            board=BOARD_DEFINITIONS["standard"](),
+            board=BOARD_DEFINITIONS["wild_wilds"](),
             rules=GameRules(timing_mode="DFS"),
         ),
-        random.Random(1),
+        random.Random(9),
         log_context=LogContext(
             engine_id=engine_id,
             engine_level=0,

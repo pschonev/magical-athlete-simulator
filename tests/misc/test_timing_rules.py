@@ -18,32 +18,7 @@ def build_graphic_board():
     )
 
 def test_chaos_chain_reaction_DFS(scenario: type[GameScenario]):
-    """
-    Recreates the specific chain reaction from the provided graphic.
-    
-    Initial State:
-    - Centaur: 0
-    - Huge Baby: 2
-    - Scoocher: 3
-    - Banana: 4
-    
-    Events:
-    1. Centaur rolls 6 -> Lands on 6.
-    2. Tile 6 (-4) triggers -> Centaur moves to 2.
-    3. Huge Baby (at 2) pushes Centaur -> Centaur moves to 1.
-    4. Centaur's Trample triggers on everyone he passed (0->6 implies passing 2,3,4).
-       - Baby (2) -> Trampled to 0.
-       - Scoocher (3) -> Trampled to 1.
-       - Banana (4) -> Trampled to 2.
-    
-    5. Secondary Effects (as implied by outcome):
-       - Why does Scoocher end at 10? 
-         - Maybe "Scooch Step" triggers when someone ends their move near him?
-         - If Centaur ended at 1, Scoocher (at 1) is adjacent. Scooch moves +3?
-         - If Scooch lands on 4 (from 1+3), maybe Tile 3 (+3) isn't hit?
-         - If Scooch lands on 4, Banana is there?
-       
-    Let's assert the FINAL state defined in the image text.
+    """Complex scenario to test a chain reaction and resolve order as well as loop detection.
     """
     
     # Setup

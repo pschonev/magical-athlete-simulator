@@ -2,7 +2,7 @@ import heapq
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any
 
 
 from magical_athlete_simulator.ai.smart_agent import SmartAgent
@@ -29,7 +29,6 @@ from magical_athlete_simulator.core.mixins import (
 )
 from magical_athlete_simulator.core.registry import RACER_ABILITIES
 from magical_athlete_simulator.engine.logging import ContextFilter
-from magical_athlete_simulator.engine.loop_detection import check_for_loops
 from magical_athlete_simulator.engine.movement import (
     handle_move_cmd,
     handle_simultaneous_move_cmd,
@@ -65,17 +64,34 @@ class Subscriber:
     owner_idx: int
 
 
+@dataclass(frozen=True)
+class HeuristicKey:
+    """Unique key for tracking loop states without relying on queue recursion."""
+
+    board_hash: int
+    event_type: type[GameEvent]
+    target_idx: int | None
+    responsible_idx: int | None
+
+
 @dataclass
 class GameEngine:
-    state: GameState
-    rng: random.Random
-    log_context: LogContext
+    state: "GameState"
+    rng: "random.Random"
+    log_context: "LogContext"
     current_processing_event: ScheduledEvent | None = None
     subscribers: dict[type[GameEvent], list[Subscriber]] = field(default_factory=dict)
-    agents: dict[int, Agent] = field(default_factory=dict)
+    agents: dict[int, "Agent"] = field(default_factory=dict)
+
+    # LOOP DETECTION
+    # 1. Heuristic History: Tracks (Board+Event) -> Min Queue Size
+    heuristic_history: dict[HeuristicKey, int] = field(default_factory=dict)
+    # 2. Creation Hashes: Maps Event.Serial -> BoardHash at creation time.
+    #    Used to detect "Lagging" events that shouldn't trigger loop detection.
+    event_creation_hashes: dict[int, int] = field(default_factory=dict)
 
     # Callback for external observers
-    on_event_processed: Callable[[Self, GameEvent], None] | None = None
+    on_event_processed: Callable[["GameEngine", GameEvent], None] | None = None
     verbose: bool = True
     _logger: logging.Logger = field(init=False, repr=False)
 
@@ -102,9 +118,10 @@ class GameEngine:
             self._advance_turn()
 
     def run_turn(self):
-        """Enhanced turn loop with multi-level loop detection."""
-        self.state.loop_detection.clear_for_new_turn()
-        self.state.history.clear()  # Keep your existing history for Level 1
+        # Clear loop detection history at the start of every turn
+        self.state.history.clear()
+        self.heuristic_history.clear()
+        self.event_creation_hashes.clear()
 
         cr = self.state.current_racer_idx
         racer = self.state.racers[cr]
@@ -114,7 +131,6 @@ class GameEngine:
         self.log_info(f"=== START TURN: {racer.repr} ===")
         racer.main_move_consumed = False
 
-        # Setup initial events (your existing code)
         if racer.tripped:
             self.log_info(f"{racer.repr} recovers from Trip.")
             racer.tripped = False
@@ -149,35 +165,110 @@ class GameEngine:
                 ),
             )
 
-        # Main event processing loop
         while self.state.queue and not self.state.race_over:
-            sched = heapq.heappop(self.state.queue)
+            # --- LAYER 1: Exact State Detection ---
+            # Catches standard cycles (Scenario 2: Unproductive loops)
+            current_hash = self.state.get_state_hash()
 
-            # Run multi-level loop detection
-            should_skip, reason = check_for_loops(self, sched)
+            if current_hash in self.state.history:
+                # This is a strict cycle (Board + Queue are identical)
+                skipped_sched = heapq.heappop(self.state.queue)
+                # Cleanup auxiliary map
+                self.event_creation_hashes.pop(skipped_sched.serial, None)
 
-            if should_skip:
                 self.log_warning(
-                    f"Loop detected: {reason}. Skipping event: {sched.event}",
+                    f"Infinite loop detected (Exact State Cycle). Dropping recursive event: {skipped_sched.event}"
                 )
-                # Continue to next event without processing this one
                 continue
 
-            # Process the event normally
+            self.state.history.add(current_hash)
+
+            # Peek the next event
+            sched = heapq.heappop(self.state.queue)
+
+            # Retrieve creation context
+            creation_hash = self.event_creation_hashes.pop(sched.serial, None)
+
+            # --- LAYER 2: Heuristic Detection (High-Water Mark) ---
+            # Catches Exploding Queues (Scenario 3)
+            # Checks if we are repeating work on the SAME board state.
+            if self._check_heuristic_loop(sched, creation_hash):
+                self.log_warning(
+                    f"Infinite loop detected (Heuristic/Exploding). Dropping: {sched.event}"
+                )
+                continue
+
+            # 3. Proceed
             self.current_processing_event = sched
             self._handle_event(sched.event)
+
+    def _check_heuristic_loop(
+        self, sched: ScheduledEvent, creation_hash: int | None
+    ) -> bool:
+        """
+        Returns True if a heuristic loop is detected.
+        """
+        current_board_hash = self._calculate_board_hash()
+
+        # STALE EVENT CHECK:
+        # If this event was created during a different board state, it is "lagging".
+        # It represents a reaction to a past state, not a loop in the current state.
+        # We allow it to resolve (drain).
+        if creation_hash is not None and creation_hash != current_board_hash:
+            return False
+
+        ev = sched.event
+        key = HeuristicKey(
+            board_hash=current_board_hash,
+            event_type=type(ev),
+            target_idx=getattr(ev, "target_racer_idx", None),
+            responsible_idx=getattr(ev, "responsible_racer_idx", None),
+        )
+
+        current_q_len = len(self.state.queue)
+
+        if key in self.heuristic_history:
+            prev_q_len = self.heuristic_history[key]
+
+            # If we are back at the exact same state, processing the exact same event,
+            # and the queue has not shrunk, we are spinning our wheels.
+            if current_q_len >= prev_q_len:
+                return True
+
+            # If queue shrank (e.g. bouncing off walls), update high-water mark and proceed.
+            self.heuristic_history[key] = current_q_len
+            return False
+
+        else:
+            self.heuristic_history[key] = current_q_len
+            return False
+
+    def _calculate_board_hash(self) -> int:
+        """
+        Generates a hash of the physical board state.
+        Excludes the Event Queue and History.
+        """
+        racer_states = tuple(
+            (
+                r.position,
+                r.active,
+                r.tripped,
+                r.main_move_consumed,
+                r.reroll_count,
+                frozenset(r.active_abilities.keys()),
+            )
+            for r in self.state.racers
+        )
+        return hash((self.state.current_racer_idx, racer_states))
 
     def _advance_turn(self):
         if self.state.race_over:
             return
 
-        # 1. Handle Turn Override (Skipper/Genius)
+        # 1. Handle Turn Override
         if self.state.next_turn_override is not None:
             next_idx = self.state.next_turn_override
-            self.state.next_turn_override = None  # Consume the override
-
-            # NOTE: We do NOT increment new_round here. Overrides are usually
-            # considered "extra" turns or interrupts within the current flow.
+            self.state.next_turn_override = None
             self.state.current_racer_idx = next_idx
             self.log_info(
                 f"Turn Order Override: {self.get_racer(next_idx).repr} takes the next turn!",
@@ -189,17 +280,14 @@ class GameEngine:
         n = len(self.state.racers)
         next_idx = (curr + 1) % n
 
-        # Check for active racers
         start_search = next_idx
         while not self.state.racers[next_idx].active:
             next_idx = (next_idx + 1) % n
-            # If we looped all the way back to the start search, everyone is dead/finished
             if next_idx == start_search:
-                self.state.race_over = True  # Everyone is finished
+                self.state.race_over = True
                 return
 
-        # 3. Detect New Round (Wrap-around)
-        # We only increment the round counter if we naturally wrap from high index to low index
+        # 3. Detect New Round
         if next_idx < curr:
             self.log_context.new_round()
 
@@ -207,18 +295,6 @@ class GameEngine:
 
     # --- Event Management ---
     def push_event(self, event: GameEvent, priority: int | None = None):
-        """
-        Pushes an event to the queue with automatic turn-order priority.
-
-
-        Args:
-            event: The GameEvent to schedule.
-            phase: The timing phase (e.g. Phase.REACTION).
-            owner_idx: The racer ID responsible for this event.
-                       Pass None for Board/System events (highest priority).
-        """
-
-        # Calculate Priority based on turn order
         if priority is not None:
             _priority = priority
         elif event.responsible_racer_idx is None:
@@ -226,9 +302,8 @@ class GameEngine:
                 isinstance(event, EmitsAbilityTriggeredEvent)
                 and event.emit_ability_triggered != "never"
             ):
-                msg = f"Received a {event.__class__.__name__} with no responsible racer ID and ability trigger mode {event.emit_ability_triggered}. AbilityTriggeredEvent can only be sent by racers."
+                msg = f"Received a {event.__class__.__name__} with no responsible racer ID..."
                 raise ValueError(msg)
-            # Board/System => Priority 0 (Highest)
             _priority = 0
         else:
             curr = self.state.current_racer_idx
@@ -239,15 +314,10 @@ class GameEngine:
             self.current_processing_event
             and self.current_processing_event.event.phase == event.phase
         ):
-            # FIX: System events (Priority 0) are treated as continuations of the current
-            # state change rather than nested reactions. By keeping depth constant,
-            # we ensure that side effects from a chain of system moves (e.g. MoveDeltaTile)
-            # are resolved in chronological order (by Serial) instead of LIFO (by Depth).
             if self.current_processing_event.priority == 0:
                 new_depth = self.current_processing_event.depth
             else:
                 new_depth = self.current_processing_event.depth + 1
-
         else:
             new_depth = 0
 
@@ -259,6 +329,12 @@ class GameEngine:
             event,
             mode=self.state.rules.timing_mode,
         )
+
+        # RECORD CREATION CONTEXT
+        # We assume the current board state is the 'parent' of this event.
+        # This helps us differentiate "lagging" events from "current loop" events later.
+        self.event_creation_hashes[sched.serial] = self._calculate_board_hash()
+
         msg = f"{sched}"
         self.log_debug(msg)
         heapq.heappush(self.state.queue, sched)
@@ -270,7 +346,6 @@ class GameEngine:
             self.push_event(AbilityTriggeredEvent.from_event(event))
 
     def _rebuild_subscribers(self):
-        """Rebuild event subscriptions from each racer's active_abilities."""
         self.subscribers.clear()
         for racer in self.state.racers:
             for ability in racer.active_abilities.values():
@@ -286,7 +361,7 @@ class GameEngine:
             self.subscribers[event_type] = []
         self.subscribers[event_type].append(Subscriber(callback, owner_idx))
 
-    def update_racer_abilities(self, racer_idx: int, new_abilities: set[AbilityName]):
+    def update_racer_abilities(self, racer_idx: int, new_abilities: set["AbilityName"]):
         racer = self.get_racer(racer_idx)
         current_instances = racer.active_abilities
         old_names = set(current_instances.keys())
@@ -294,14 +369,11 @@ class GameEngine:
         removed = old_names - new_abilities
         added = new_abilities - old_names
 
-        # 1. Handle Removed
         for name in removed:
             instance = current_instances.pop(name)
-
             if isinstance(instance, LifecycleManagedMixin):
                 instance.__class__.on_loss(self, racer_idx)
 
-            # Selective Unsubscribe
             for event_type in self.subscribers:
                 self.subscribers[event_type] = [
                     sub
@@ -312,15 +384,12 @@ class GameEngine:
                     )
                 ]
 
-        # 2. Handle Added
         for name in added:
             ability_cls = get_ability_classes().get(name)
             if ability_cls:
                 instance = ability_cls(name=name)
-
                 instance.register(self, racer_idx)
                 current_instances[name] = instance
-
                 if isinstance(instance, LifecycleManagedMixin):
                     instance.__class__.on_gain(self, racer_idx)
 
@@ -330,12 +399,9 @@ class GameEngine:
         subs = self.subscribers[type(event)]
         curr = self.state.current_racer_idx
         count = len(self.state.racers)
-        # Ordered iteration: Start from current player, go clockwise
         ordered_subs = sorted(subs, key=lambda s: (s.owner_idx - curr) % count)
 
         for sub in ordered_subs:
-            # If a re-roll happened mid-loop during a Window event, we might want to abort
-            # further listeners for this specific serial, but simplified here:
             sub.callback(event, sub.owner_idx, self)
 
     def _handle_event(self, event: GameEvent):
@@ -372,11 +438,11 @@ class GameEngine:
         if self.on_event_processed:
             self.on_event_processed(self, event)
 
-    # -- Getters for convencience --
-    def get_agent(self, racer_idx: int) -> Agent:
+    # -- Getters --
+    def get_agent(self, racer_idx: int) -> "Agent":
         return self.agents[racer_idx]
 
-    def get_racer(self, idx: int) -> RacerState:
+    def get_racer(self, idx: int) -> "RacerState":
         return self.state.racers[idx]
 
     def get_racer_pos(self, idx: int) -> int:
@@ -386,7 +452,7 @@ class GameEngine:
         self,
         tile_idx: int,
         except_racer_idx: int | None = None,
-    ) -> list[RacerState]:
+    ) -> list["RacerState"]:
         if except_racer_idx is None:
             return [r for r in self.state.racers if r.position == tile_idx and r.active]
         else:
@@ -398,10 +464,8 @@ class GameEngine:
 
     # -- Logging --
     def _log(self, level: int, msg: str, *args: Any, **kwargs: Any) -> None:
-        """Core logging helper; respects engine verbosity."""
         if not self.verbose:
             return
-        # Delegate to underlying logger; *args/kwargs support normal %-formatting or extra=
         self._logger.log(level, msg, *args, **kwargs)
 
     def log_debug(self, msg: str, *args: Any, **kwargs: Any) -> None:

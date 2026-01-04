@@ -128,8 +128,7 @@ def run_single_simulation(
         runner_up = sorted_results[1].racer_name if len(sorted_results) > 1 else "None"
 
         tqdm.write(
-            f"🏁 Done in {execution_time_ms:.2f}ms | {turn_counter} turns | "
-            f"1st: {winner}, 2nd: {runner_up}",
+            f"🏁 Done in {execution_time_ms:.2f}ms | {turn_counter} turns |\n1st: {winner}, 2nd: {runner_up}",
         )
 
     return SimulationResult(
