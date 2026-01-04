@@ -218,3 +218,4 @@ rules.md
 
 *.duckdb
 *.duckdb*
+results/simulation.duckdb
