@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+
 from magical_athlete_simulator.ai.smart_agent import SmartAgent
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
@@ -40,6 +41,7 @@ from magical_athlete_simulator.engine.roll import (
     resolve_main_move,
 )
 from magical_athlete_simulator.racers import get_ability_classes
+
 
 if TYPE_CHECKING:
     import random
@@ -148,10 +150,14 @@ class GameEngine:
 
             # 2. Check for cycle
             if current_hash in self.state.history:
+                # FIX: Instead of breaking the whole turn, we surgically remove the
+                # event that is causing the recursion/loop. This effectively "prunes"
+                # the infinite branch while leaving other pending events intact.
+                skipped_sched = heapq.heappop(self.state.queue)
                 self.log_warning(
-                    "Infinite loop detected (state + queue cycle). Aborting turn.",
+                    f"Infinite loop detected (state cycle). Dropping recursive event: {skipped_sched.event}"
                 )
-                break
+                continue
 
             self.state.history.add(current_hash)
 
@@ -202,6 +208,7 @@ class GameEngine:
     def push_event(self, event: GameEvent, priority: int | None = None):
         """
         Pushes an event to the queue with automatic turn-order priority.
+
 
         Args:
             event: The GameEvent to schedule.
