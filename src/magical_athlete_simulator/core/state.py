@@ -1,8 +1,6 @@
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
-from magical_athlete_simulator.engine.loop_detection import LoopDetectionState
-
 if TYPE_CHECKING:
     from magical_athlete_simulator.core.abilities import Ability
     from magical_athlete_simulator.core.events import ScheduledEvent
@@ -69,7 +67,6 @@ class GameState:
     current_racer_idx: int = 0
     next_turn_override: int | None = None
     roll_state: RollState = field(default_factory=RollState)
-    loop_detection: LoopDetectionState = field(default_factory=LoopDetectionState)
 
     queue: list[ScheduledEvent] = field(default_factory=list)
     serial: int = 0
