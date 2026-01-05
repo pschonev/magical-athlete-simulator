@@ -2151,8 +2151,8 @@ def _(
             (pl.col("rel_clutch_shift") * 100).round(1).alias("Clutch Shift%"),
             (pl.col("rel_closing_shift") * 100).round(1).alias("Close Shift%"),
             pl.col("dice_per_turn").round(2).alias("Base Roll"),
+            pl.col("final_roll_per_turn").round(2).alias("Final Roll"),
             pl.col("dice_impact_score").round(2).alias("Dice Imp"),
-            pl.col("final_roll_impact_score").round(2).alias("Final Imp"),
         ]
     )
 
