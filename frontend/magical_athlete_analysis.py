@@ -30,7 +30,6 @@ def _():
 
     # Imports
     from magical_athlete_simulator.engine.scenario import GameScenario, RacerConfig
-
     return (
         BOARD_DEFINITIONS,
         Console,
@@ -349,7 +348,6 @@ def _(StepSnapshot, get_racer_color, math):
             <ellipse cx="350" cy="260" rx="150" ry="70" fill="#C8E6C9" stroke="none"/>
             {"".join(svg_elements)}
         </svg>"""
-
     return (render_game_track,)
 
 
@@ -1257,12 +1255,7 @@ def _(mo):
 
 
 @app.cell
-def _(
-    df_positions_f,
-    df_racer_results_f,
-    df_races_f,
-    pl,
-):
+def _(df_positions_f, df_racer_results_f, df_races_f, pl):
     # 2. HEAVY COMPUTATION CELL
     def unpivot_positions(df_flat: pl.DataFrame) -> pl.DataFrame:
         return (
@@ -1296,7 +1289,21 @@ def _(
         # --- A. PREPARE METRICS ---
         df_long = unpivot_positions(df_positions_f)
 
-        # 1. Tightness & Volatility
+        # 1. TRUTH SOURCE: Global Win Rates
+        global_win_rates = (
+            df_racer_results_f.group_by("racer_name")
+            .agg(
+                [
+                    (pl.col("rank") == 1).sum().alias("total_wins"),
+                    pl.len().alias("total_races"),
+                ]
+            )
+            .with_columns(
+                (pl.col("total_wins") / pl.col("total_races")).alias("global_win_rate")
+            )
+        )
+
+        # 2. Tightness & Volatility
         turn_stats = df_long.group_by(["config_hash", "turn_index"]).agg(
             pl.col("position").mean().alias("mean_pos")
         )
@@ -1335,14 +1342,17 @@ def _(
             pl.col("position").max().alias("final_distance")
         )
 
-        # 2. Clutch & Closing (Fixed Logic + Correct Grouping)
-        winner_turns = df_racer_results_f.filter(pl.col("rank") == 1).select(
-            ["config_hash", pl.col("turns_taken").alias("winner_turns")]
+        # 3. Clutch & Closing (Tie-aware logic)
+        winner_turns = (
+            df_racer_results_f.filter(pl.col("rank") == 1)
+            .group_by("config_hash")
+            .agg(pl.col("turns_taken").min().alias("winner_turns"))
         )
 
         snapshot_target = winner_turns.with_columns(
             (pl.col("winner_turns") * 0.66)
             .floor()
+            .clip(lower_bound=1)
             .cast(pl.Int32)
             .alias("snapshot_turn")
         )
@@ -1355,34 +1365,22 @@ def _(
             .last()
         )
 
-        # Calculate Ranks at Snapshot
-        snapshot_ranks = (
-            snapshot_state.join(
-                df_races_f.select(["config_hash", "racer_count"]), on="config_hash"
-            )
-            .sort(
-                ["config_hash", "position", "racer_id"], descending=[False, True, False]
-            )
-            .with_columns(
-                pl.col("position")
-                .rank(method="ordinal", descending=True)
-                .over("config_hash")
-                .alias("rank_at_snapshot")
-            )
+        snapshot_ranks = snapshot_state.join(
+            df_races_f.select(["config_hash", "racer_count"]), on="config_hash"
+        ).with_columns(
+            pl.col("position")
+            .rank(method="min", descending=True)
+            .over("config_hash")
+            .alias("rank_at_snapshot")
         )
 
-        # JOIN RACER NAMES HERE to fix the grouping bug
-        # We need the mapping of (config_hash, racer_id) -> racer_name
         racer_map = df_racer_results_f.select(
             ["config_hash", "racer_id", "racer_name", "rank"]
-        )
-
+        ).unique()
         snapshot_with_names = snapshot_ranks.join(
             racer_map, on=["config_hash", "racer_id"], how="inner"
         )
 
-        # Metric A: Clutch Factor (Win from STRICT LAST PLACE)
-        # Group by racer_name now!
         clutch_calc = (
             snapshot_with_names.filter(
                 pl.col("rank_at_snapshot") == pl.col("racer_count")
@@ -1392,13 +1390,31 @@ def _(
                 (pl.col("rank") == 1).sum().alias("clutch_wins"),
                 pl.len().alias("clutch_opps"),
             )
-            .with_columns(
-                (pl.col("clutch_wins") / pl.col("clutch_opps")).alias("clutch_factor")
+            .join(
+                global_win_rates.select(["racer_name", "global_win_rate"]),
+                on="racer_name",
+                how="left",
             )
+            .with_columns(
+                [
+                    (pl.col("clutch_wins") / pl.col("clutch_opps")).alias(
+                        "raw_clutch_rate"
+                    ),
+                ]
+            )
+            .with_columns(
+                [
+                    (
+                        (pl.col("raw_clutch_rate") - pl.col("global_win_rate"))
+                        / pl.col("global_win_rate")
+                    ).alias("rel_clutch_shift")
+                ]
+            )
+            .select(
+                ["racer_name", "raw_clutch_rate", "rel_clutch_shift"]
+            )  # CLEAN SELECTION
         )
 
-        # Metric B: Closing Rate (Win from STRICT FIRST PLACE)
-        # Group by racer_name now!
         closing_calc = (
             snapshot_with_names.filter(pl.col("rank_at_snapshot") == 1)
             .group_by("racer_name")
@@ -1406,12 +1422,32 @@ def _(
                 (pl.col("rank") == 1).sum().alias("closing_wins"),
                 pl.len().alias("closing_opps"),
             )
-            .with_columns(
-                (pl.col("closing_wins") / pl.col("closing_opps")).alias("closing_rate")
+            .join(
+                global_win_rates.select(["racer_name", "global_win_rate"]),
+                on="racer_name",
+                how="left",
             )
+            .with_columns(
+                [
+                    (pl.col("closing_wins") / pl.col("closing_opps")).alias(
+                        "raw_closing_rate"
+                    ),
+                ]
+            )
+            .with_columns(
+                [
+                    (
+                        (pl.col("raw_closing_rate") - pl.col("global_win_rate"))
+                        / pl.col("global_win_rate")
+                    ).alias("rel_closing_shift")
+                ]
+            )
+            .select(
+                ["racer_name", "raw_closing_rate", "rel_closing_shift"]
+            )  # CLEAN SELECTION
         )
 
-        # 3. Start Position Bias
+        # 4. Start Position Bias
         start_stats = (
             df_racer_results_f.join(
                 df_races_f.select(["config_hash", "racer_count"]), on="config_hash"
@@ -1433,24 +1469,31 @@ def _(
                     (pl.col("rank").filter(pl.col("is_last")) == 1)
                     .mean()
                     .alias("win_rate_last"),
-                    (pl.col("rank") == 1).mean().alias("win_rate_global"),
                 ]
+            )
+            .join(
+                global_win_rates.select(["racer_name", "global_win_rate"]),
+                on="racer_name",
+                how="left",
             )
             .with_columns(
                 [
                     (
-                        (pl.col("win_rate_first") - pl.col("win_rate_global"))
-                        / pl.col("win_rate_global")
+                        (pl.col("win_rate_first") - pl.col("global_win_rate"))
+                        / pl.col("global_win_rate")
                     ).alias("rel_bias_first"),
                     (
-                        (pl.col("win_rate_last") - pl.col("win_rate_global"))
-                        / pl.col("win_rate_global")
+                        (pl.col("win_rate_last") - pl.col("global_win_rate"))
+                        / pl.col("global_win_rate")
                     ).alias("rel_bias_last"),
                 ]
             )
+            .select(
+                ["racer_name", "rel_bias_first", "rel_bias_last"]
+            )  # CLEAN SELECTION
         )
 
-        # 4. Environment Stats
+        # 5. Environment & Merge
         race_environment_stats = df_racer_results_f.group_by("config_hash").agg(
             [
                 (
@@ -1462,7 +1505,6 @@ def _(
             ]
         )
 
-        # 5. Merging Race & Result Data
         stats_races = (
             df_races_f.join(tightness_calc, on="config_hash", how="left")
             .join(volatility_calc, on="config_hash", how="left")
@@ -1474,7 +1516,6 @@ def _(
             final_dist_calc, on=["config_hash", "racer_id"], how="left"
         )
 
-        # 6. Strategic Potency
         potency_score = (
             stats_results.with_columns(
                 (pl.col("ability_trigger_count") > 0).alias("used")
@@ -1501,7 +1542,26 @@ def _(
             )
         )
 
-        # 7. Base Stats Aggregation
+        # 6. Base Stats Aggregation (Median Consistency)
+
+        # A. Calculate Median VP per racer
+        racer_medians = stats_results.group_by("racer_name").agg(
+            pl.col("final_vp").median().alias("median_vp")
+        )
+
+        # B. Calculate % of races within +/- 1.0 VP of Median
+        consistency_calc = (
+            stats_results.join(racer_medians, on="racer_name", how="left")
+            .with_columns(
+                (
+                    (pl.col("final_vp") >= (pl.col("median_vp") - 1.0))
+                    & (pl.col("final_vp") <= (pl.col("median_vp") + 1.0))
+                ).alias("is_consistent")
+            )
+            .group_by("racer_name")
+            .agg(pl.col("is_consistent").mean().alias("consistency_score"))
+        )
+
         base_stats = (
             stats_results.with_columns(
                 pl.when(pl.col("turns_taken") > 0)
@@ -1537,9 +1597,7 @@ def _(
                 [
                     pl.col("racer_id").first().alias("racer_id"),
                     pl.col("final_vp").mean().alias("mean_vp"),
-                    (pl.col("final_vp").std() / pl.col("final_vp").mean()).alias(
-                        "cv_vp"
-                    ),
+                    pl.col("final_vp").std().alias("std_vp"),
                     (pl.col("rank") == 1).sum().alias("cnt_1st"),
                     (pl.col("rank") == 2).sum().alias("cnt_2nd"),
                     pl.len().alias("races_run"),
@@ -1595,18 +1653,28 @@ def _(
             base_stats.join(potency_score, on="racer_id", how="left")
             .join(corr_df, on="racer_name", how="left")
             .join(start_stats, on="racer_name", how="left")
-            .join(clutch_calc, on="racer_name", how="left")  # JOIN ON NAME
-            .join(closing_calc, on="racer_name", how="left")  # JOIN ON NAME
+            .join(clutch_calc, on="racer_name", how="left")
+            .join(closing_calc, on="racer_name", how="left")
+            .join(
+                global_win_rates.select(["racer_name", "global_win_rate"]),
+                on="racer_name",
+                how="left",
+            )
+            .join(consistency_calc, on="racer_name", how="left")
             .with_columns(
                 [
                     (pl.col("cnt_1st") / pl.col("races_run")).alias("pct_1st"),
                     (pl.col("cnt_2nd") / pl.col("races_run")).alias("pct_2nd"),
                     pl.col("strategic_potency").fill_null(0),
-                    pl.col("cv_vp").fill_null(0),
+                    pl.col("std_vp").fill_null(0),
+                    pl.col("consistency_score").fill_null(0),
                     pl.col("rel_bias_first").fill_null(0),
                     pl.col("rel_bias_last").fill_null(0),
-                    pl.col("clutch_factor").fill_null(0),
-                    pl.col("closing_rate").fill_null(0),
+                    pl.col("rel_clutch_shift").fill_null(0),
+                    pl.col("rel_closing_shift").fill_null(0),
+                    pl.col("raw_clutch_rate").fill_null(0),
+                    pl.col("raw_closing_rate").fill_null(0),
+                    pl.col("global_win_rate").fill_null(0),
                 ]
             )
         )
@@ -1716,6 +1784,7 @@ def _(
         y_title,
         reverse_x=False,
         quad_labels=None,
+        extra_tooltips=None,
     ):
         vals_x = stats_df[x_col].drop_nulls().to_list()
         vals_y = stats_df[y_col].drop_nulls().to_list()
@@ -1756,6 +1825,15 @@ def _(
             .encode(x="x")
         )
 
+        tips = [
+            "racer_name",
+            alt.Tooltip(x_col, format=".2f"),
+            alt.Tooltip(y_col, format=".2f"),
+            "mean_vp",
+        ]
+        if extra_tooltips:
+            tips.extend(extra_tooltips)
+
         points = base.mark_circle(size=150, opacity=0.9).encode(
             x=alt.X(
                 x_col,
@@ -1769,12 +1847,7 @@ def _(
                 title=y_title,
                 scale=alt.Scale(domain=[view_min_y, view_max_y], zero=False),
             ),
-            tooltip=[
-                "racer_name",
-                alt.Tooltip(x_col, format=".2f"),
-                alt.Tooltip(y_col, format=".2f"),
-                "mean_vp",
-            ],
+            tooltip=tips,
         )
 
         text_labels = points.mark_text(
@@ -1836,18 +1909,51 @@ def _(
         return chart.properties(title=title, width=680, height=680)
 
     # --- 3. GENERATE CHARTS ---
+    # UPDATED: Use Median Consistency
+    # X-Axis: consistency_score (0.0 to 1.0)
+    # Reverse X? No, High Score = Reliable (Right side).
+    # Wait, conventional charts usually have "Stable/Good" on Top-Right or Top-Left.
+    # User wanted "Reliable" (Low Variance) grouped.
+    # Let's put High Consistency (Reliable) on the RIGHT.
+
     c_consist = _build_quadrant_chart(
         stats,
         r_list,
         c_list,
-        "cv_vp",
+        "consistency_score",
         "mean_vp",
-        "Consistency (Normalized)",
-        "Coef. of Variation (Lower is Better)",
+        "Consistency (Median Stability)",
+        "Stability (% Races near Median)",
         "Avg VP",
-        True,
-        ["Wildcard", "Reliable Winner", "Volatile Loser", "Consistently Poor"],
+        False,  # High Consistency = Right
+        [
+            "Reliable Winner",
+            "Wildcard",
+            "Erratic",
+            "Reliable Loser",
+        ],  # TL, TR, BL, BR ??
+        # Wait, if X is Consistency (Right=High):
+        # Top-Right: High VP, High Consist = Reliable Winner
+        # Top-Left: High VP, Low Consist = Wildcard (Boom/Bust winner)
+        # Bot-Right: Low VP, High Consist = Reliable Loser
+        # Bot-Left: Low VP, Low Consist = Erratic Loser
     )
+    # The quadrant labels order is [TL, TR, BL, BR]
+    # So: ["Wildcard", "Reliable Winner", "Erratic", "Reliable Loser"]
+
+    c_consist = _build_quadrant_chart(
+        stats,
+        r_list,
+        c_list,
+        "consistency_score",
+        "mean_vp",
+        "Consistency (Median Stability)",
+        "Stability (% Races within 1.0 VP of Median)",
+        "Avg VP",
+        False,
+        ["Wildcard", "Reliable Winner", "Erratic", "Reliable Loser"],
+    )
+
     c_ability = _build_quadrant_chart(
         stats,
         r_list,
@@ -1885,7 +1991,6 @@ def _(
         ["Dice Hungry", "Nitro Junkie", "Slow Farmer", "Efficient Engine"],
     )
 
-    # NEW CHART: Start Position Bias (Relative Shift)
     c_start_bias = _build_quadrant_chart(
         stats,
         r_list,
@@ -1903,13 +2008,18 @@ def _(
         stats,
         r_list,
         c_list,
-        "clutch_factor",
-        "closing_rate",
-        "Pressure Profile (Strict First/Last)",
-        "Clutch Factor (Win from Strict Last)",
-        "Closing Rate (Win from Strict Lead)",
+        "rel_clutch_shift",
+        "rel_closing_shift",
+        "Pressure Profile (Relative Shift)",
+        "Clutch Shift (Win% vs Avg when Last)",
+        "Closing Shift (Win% vs Avg when First)",
         False,
         ["Choke Artist", "Champion", "Weak Closer", "Frontrunner"],
+        extra_tooltips=[
+            alt.Tooltip("raw_clutch_rate", format=".1%", title="Win% from Last"),
+            alt.Tooltip("raw_closing_rate", format=".1%", title="Win% from First"),
+            alt.Tooltip("global_win_rate", format=".1%", title="Global Win%"),
+        ],
     )
 
     c_duration = _build_quadrant_chart(
@@ -2028,9 +2138,10 @@ def _(
         [
             pl.col("racer_name").alias("Racer"),
             pl.col("mean_vp").round(2).alias("Avg VP"),
-            pl.col("cv_vp").round(2).alias("CV (Var)"),
-            (pl.col("rel_bias_first") * 100).round(1).alias("Bias 1st%"),  # Updated
-            (pl.col("rel_bias_last") * 100).round(1).alias("Bias Last%"),  # Updated
+            # Replaced VP SD with Consistency
+            (pl.col("consistency_score") * 100).round(1).alias("Consist%"),
+            (pl.col("rel_bias_first") * 100).round(1).alias("Bias 1st%"),
+            (pl.col("rel_bias_last") * 100).round(1).alias("Bias Last%"),
             (pl.col("pct_1st") * 100).round(1).alias("Tot Win%"),
         ]
     )
@@ -2039,8 +2150,8 @@ def _(
         [
             pl.col("racer_name").alias("Racer"),
             pl.col("avg_speed").round(2).alias("Speed"),
-            (pl.col("clutch_factor") * 100).round(1).alias("Clutch %"),
-            (pl.col("closing_rate") * 100).round(1).alias("Close %"),
+            (pl.col("rel_clutch_shift") * 100).round(1).alias("Clutch Shift%"),
+            (pl.col("rel_closing_shift") * 100).round(1).alias("Close Shift%"),
             pl.col("dice_per_turn").round(2).alias("Base Roll"),
             pl.col("dice_impact_score").round(2).alias("Dice Imp"),
             pl.col("final_roll_impact_score").round(2).alias("Final Imp"),
@@ -2084,7 +2195,7 @@ def _(
                 [
                     mo.ui.altair_chart(c_consist),
                     mo.md(
-                        "**CV**: Normalized Variance (StdDev / Mean). Lower = More Consistent."
+                        "**Consistency**: % of races where Final VP is within ±1.0 of the racer's personal Median VP."
                     ),
                 ]
             ),
@@ -2100,7 +2211,7 @@ def _(
                 [
                     mo.ui.altair_chart(c_clutch_profile),
                     mo.md(
-                        "**X: Clutch** (Win from Last) vs **Y: Closing** (Win from First) at 2/3 race mark."
+                        "**X: Clutch Shift** (Last Place) vs **Y: Closing Shift** (Leading) at 2/3 race mark. Relative to personal average."
                     ),
                 ]
             ),
@@ -2156,7 +2267,7 @@ def _(
                 [
                     mo.ui.table(df_movement, selection=None, page_size=50),
                     mo.md(
-                        "**Clutch %**: Win from Last @ 66%. **Close %**: Win from Lead @ 66%."
+                        "**Clutch Shift**: Improvement in win% when Last. **Close Shift**: Improvement in win% when Leading."
                     ),
                 ]
             ),
