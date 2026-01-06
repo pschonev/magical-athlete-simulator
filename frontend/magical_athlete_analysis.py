@@ -1783,6 +1783,9 @@ def _(
         "Avg VP",
         False,
         ["Wildcard", "Reliable Winner", "Erratic", "Reliable Loser"],
+        extra_tooltips=[
+            alt.Tooltip("std_vp:Q", format=".2f", title="1σ (Std Dev)"),
+        ],
     )
 
     c_excitement = _build_quadrant_chart(
@@ -1792,8 +1795,8 @@ def _(
         "avg_race_tightness",
         "avg_race_volatility",
         "Excitement Profile",
-        "Tightness",
-        "Volatility",
+        "Tightness (Avg distance from mean position)",
+        "Volatility (% of turns with rank changes)",
         True,
         ["Rubber Band", "Thriller", "Procession", "Stalemate"],
     )
@@ -1808,7 +1811,7 @@ def _(
         "Ability Move Dep (Corr to VP)",
         "Dice Dep (Corr to VP)",
         False,
-        ["Dice-Driven", "Hybrid Winner", "Low Signal", "Ability-Driven"],
+        ["Ability-Driven", "Hybrid Winner", "Low Signal", "Dice-Driven"],
         extra_tooltips=[
             alt.Tooltip("avg_ability_move:Q", format=".2f", title="Ability Mvmt/Turn"),
             alt.Tooltip("avg_dice_rolling:Q", format=".2f", title="Dice/Rolling Turn"),
@@ -1832,26 +1835,24 @@ def _(
         ],
     )
 
-    # --- 4. GLOBAL DYNAMICS (FIXED + WRAPS TO TWO ROWS) ---
+    # --- 4. GLOBAL DYNAMICS (SPLIT INTO TWO CHARTS, STACKED) ---
     race_meta = df_races_f.select(["config_hash", "board", "racer_count"])
 
     races_with_meta = proc_races.join(race_meta, on="config_hash", how="left")
-    results_with_meta = proc_results.join(race_meta, on="config_hash", how="left").join(
-        stats.select(["racer_name", "consistency_score"]), on="racer_name", how="left"
-    )
+    results_with_meta = proc_results.join(race_meta, on="config_hash", how="left")
 
     race_level_agg = races_with_meta.group_by(["board", "racer_count"]).agg(
         pl.col("total_turns").mean().alias("Avg Turns"),
         pl.col("race_tightness_score").mean().alias("Tightness"),
         pl.col("race_volatility_score").mean().alias("Volatility"),
         pl.col("race_avg_trip_rate").mean().alias("Trip Rate"),
+        pl.col("race_avg_triggers").mean().alias("Abilities Triggered"),
     )
 
     result_level_agg = (
         results_with_meta.group_by(["board", "racer_count"])
         .agg(
             pl.col("final_vp").mean().alias("Avg VP"),
-            pl.col("consistency_score").mean().alias("Stability"),
             pl.corr("sum_dice_rolled", "final_vp").alias("Dice Dep"),
             pl.corr("non_dice_movement", "final_vp").alias("Ability Dep"),
             (pl.corr("racer_id", "final_vp") * -1).alias("Start Bias"),
@@ -1864,20 +1865,40 @@ def _(
         result_level_agg, on=["board", "racer_count"], how="inner"
     ).fill_nan(0)
 
-    global_agg = global_wide.unpivot(
-        index=["board", "racer_count"], variable_name="metric", value_name="val"
-    )
+    # Split into two groups of 5 metrics each
+    global_grp1 = global_wide.select(
+        [
+            "board",
+            "racer_count",
+            "Avg VP",
+            "Avg Turns",
+            "Tightness",
+            "Volatility",
+            "Trip Rate",
+        ]
+    ).unpivot(index=["board", "racer_count"], variable_name="metric", value_name="val")
 
-    # Force wrap: use 4 columns so 8–10 metrics naturally become ~2 rows
-    c_global = (
-        alt.Chart(global_agg)
+    global_grp2 = global_wide.select(
+        [
+            "board",
+            "racer_count",
+            "Dice Dep",
+            "Ability Dep",
+            "Start Bias",
+            "MidGame Bias",
+            "Abilities Triggered",
+        ]
+    ).unpivot(index=["board", "racer_count"], variable_name="metric", value_name="val")
+
+    c_global_1 = (
+        alt.Chart(global_grp1)
         .mark_bar()
         .encode(
             x=alt.X("board:N", title="Board", axis=alt.Axis(labelAngle=0)),
-            xOffset=alt.XOffset("racer_count:N", title="Players"),
+            xOffset=alt.XOffset("racer_count:N"),
             y=alt.Y("val:Q", title=None),
             color=alt.Color("racer_count:N", title="Players"),
-            column=alt.Column("metric:N", title=None, columns=4),
+            column=alt.Column("metric:N", title=None),
             tooltip=[
                 "board:N",
                 "racer_count:N",
@@ -1886,11 +1907,36 @@ def _(
             ],
         )
         .resolve_scale(y="independent")
-        .properties(width=120, height=200, title="Global Statistics by Map & Count")
+        .properties(width=120, height=200, title="Race Metrics by Board & Player Count")
+    )
+
+    c_global_2 = (
+        alt.Chart(global_grp2)
+        .mark_bar()
+        .encode(
+            x=alt.X("board:N", title="Board", axis=alt.Axis(labelAngle=0)),
+            xOffset=alt.XOffset("racer_count:N"),
+            y=alt.Y("val:Q", title=None),
+            color=alt.Color("racer_count:N", title="Players"),
+            column=alt.Column("metric:N", title=None),
+            tooltip=[
+                "board:N",
+                "racer_count:N",
+                "metric:N",
+                alt.Tooltip("val:Q", format=".3f"),
+            ],
+        )
+        .resolve_scale(y="independent")
+        .properties(
+            width=120, height=200, title="Victory Correlations & Ability Usage by Board"
+        )
+    )
+
+    global_ui = mo.vstack(
+        [mo.ui.altair_chart(c_global_1), mo.ui.altair_chart(c_global_2)]
     )
 
     # --- 5. ENVIRONMENT MATRIX (two-line horizontal labels) ---
-    # Keep your existing toggle behavior: pct vs absolute
     env_metric_col = "relative_shift" if use_pct else "absolute_shift"
     env_metric_title = "Shift vs Own Avg (%)" if use_pct else "Shift vs Own Avg (VP)"
     env_legend_fmt = ".0%" if use_pct else "+.2f"
@@ -1915,7 +1961,6 @@ def _(
             (pl.col("cond_avg_vp") - pl.col("racer_global_avg_vp")).alias(
                 "absolute_shift"
             ),
-            # Two-line label: count on top, board below (still horizontal with labelAngle=0)
             (
                 pl.col("racer_count").cast(pl.String)
                 + "p\n"
@@ -1938,7 +1983,7 @@ def _(
         .encode(
             x=alt.X(
                 "env_label:N",
-                title="Environment",
+                title="Environment (Player Count / Board)",
                 sort=sort_order,
                 axis=alt.Axis(labelAngle=0, labelLimit=180),
             ),
@@ -1954,6 +1999,9 @@ def _(
                 "board:N",
                 "racer_count:N",
                 alt.Tooltip("cond_avg_vp:Q", format=".2f", title="Avg VP (env)"),
+                alt.Tooltip(
+                    "racer_global_avg_vp:Q", format=".2f", title="Global Avg VP"
+                ),
                 alt.Tooltip("absolute_shift:Q", format="+.2f", title="Shift (VP)"),
                 alt.Tooltip("relative_shift:Q", format="+.1%", title="Shift (%)"),
                 alt.Tooltip("sample_size:Q", format=".0f", title="N"),
@@ -1964,7 +2012,7 @@ def _(
         )
     )
 
-    # --- 6. TABLES ---
+    # --- 6. TABLES (with expanded explanations) ---
     master_df = stats.sort("mean_vp", descending=True)
 
     df_overview = master_df.select(
@@ -1977,11 +2025,12 @@ def _(
 
     df_movement = master_df.select(
         pl.col("racer_name").alias("Racer"),
-        pl.col("avg_speed_gross").round(2).alias("Accurate Speed"),
-        pl.col("ability_move_dependency").round(2).alias("Ability Move Dep"),
-        pl.col("dice_dependency").round(2).alias("Dice Dep"),
+        pl.col("avg_speed_gross").round(2).alias("Speed"),
         pl.col("avg_dice_base").round(2).alias("Base Roll"),
+        pl.col("dice_dependency").round(2).alias("Dice Dep"),
         pl.col("plus_minus_modified").round(2).alias("+-Modified"),
+        pl.col("avg_ability_move").round(2).alias("Ability Mvmt/Turn"),
+        pl.col("ability_move_dependency").round(2).alias("Ability Move Dep"),
     )
 
     df_abilities = master_df.select(
@@ -2005,7 +2054,7 @@ def _(
         pl.col("racer_name").alias("Racer"),
         pl.col("mean_vp").round(2).alias("Avg VP"),
         pl.col("dice_dependency").round(2).alias("Dice Dep"),
-        pl.col("ability_move_dependency").round(2).alias("Ability Dep"),
+        pl.col("ability_move_dependency").round(2).alias("Ability Move Dep"),
         pl.col("start_pos_bias").round(2).alias("Start Bias"),
         pl.col("midgame_bias").round(2).alias("MidGame Bias"),
     )
@@ -2017,15 +2066,16 @@ def _(
                 [
                     mo.ui.altair_chart(c_consist),
                     mo.md(
-                        "**Stability**: % of races where Final VP is within ±1 standard deviation of the racer's mean VP."
+                        """**Stability**: Percentage of races where Final VP is within ±1 standard deviation (1σ) of the racer's mean VP."""
                     ),
                 ]
             ),
-            "⚔️ Sources of Victory": mo.vstack(
+            "🎲 Dice vs Ability": mo.vstack(
                 [
                     mo.ui.altair_chart(c_sources),
                     mo.md(
-                        "**X: Ability Move Dep** vs **Y: Dice Dep** (correlations to VP)."
+                        """**X: Ability Move Dependency** – Correlation of non-dice movement (ability-driven positioning) to VP.  
+    **Y: Dice Dependency** – Correlation of total dice rolled to VP."""
                     ),
                 ]
             ),
@@ -2033,24 +2083,35 @@ def _(
                 [
                     mo.ui.altair_chart(c_momentum),
                     mo.md(
-                        "**X: Start Pos Bias** (+ = comebacks) vs **Y: Mid-Game Bias** (+ = leaders close)."
+                        """**X: Start Pos Bias** – Correlation of starting position (racer ID) to VP.    
+    **Y: Mid-Game Bias** – Correlation of position at 66% mark to VP.  """
                     ),
                 ]
             ),
             "🔥 Excitement": mo.vstack(
                 [
                     mo.ui.altair_chart(c_excitement),
-                    mo.md("**Tightness** vs **Volatility**."),
+                    mo.md(
+                        """**Tightness** (X-axis, reversed): Average distance from mean position across all turns.    
+    **Volatility** (Y-axis): Percentage of turns where at least one racer changes rank."""
+                    ),
                 ]
             ),
-            "🌍 Global": mo.ui.altair_chart(c_global),
+            "🌍 Global": global_ui,
         }
     )
 
     right_ui = mo.ui.tabs(
         {
             "🏆 Overview": mo.vstack(
-                [mo.ui.table(df_overview, selection=None, page_size=50)]
+                [
+                    mo.ui.table(df_overview, selection=None, page_size=50),
+                    mo.md(
+                        """**Avg VP**: Mean victory points across all races.  
+    **Consist%**: Reliability – percentage of races within 1 standard deviation of mean VP.  
+    **1st%** / **2nd%**: Win rate and runner-up rate."""
+                    ),
+                ]
             ),
             "⚔️ Interactions": mo.vstack(
                 [matchup_metric_toggle, mo.ui.altair_chart(c_matrix)]
@@ -2058,10 +2119,55 @@ def _(
             "🌍 Environments": mo.vstack(
                 [matchup_metric_toggle, mo.ui.altair_chart(c_env)]
             ),
-            "🏃 Movement": mo.ui.table(df_movement, selection=None, page_size=50),
-            "💎 VP Analysis": mo.ui.table(df_vp, selection=None, page_size=50),
-            "⚡ Abilities": mo.ui.table(df_abilities, selection=None, page_size=50),
-            "🔥 Dynamics": mo.ui.table(df_dynamics, selection=None, page_size=50),
+            "🏃 Movement": mo.vstack(
+                [
+                    mo.ui.table(df_movement, selection=None, page_size=50),
+                    mo.md(
+                        """**Speed**: Average gross distance moved per turn (sum of positive position deltas).
+    **Dice Dep**: Correlation of total dice rolled to VP.  
+    **Base Roll**: Average initial dice roll per turn (before modifiers).  
+    **+-Modified**: Average net modifier applied to dice rolls (Final Roll - Base Roll).    
+    **Ability Mvmt/Turn**: Average non-dice movement per turn (gross speed - dice rolled).    
+    **Ability Move Dep**: Correlation of non-dice movement (ability-driven positioning) to VP."""
+                    ),
+                ]
+            ),
+            "💎 VP Analysis": mo.vstack(
+                [
+                    mo.ui.table(df_vp, selection=None, page_size=50),
+                    mo.md(
+                        """**Dice Dep**: Correlation of dice rolled to VP. High = dice-dependent winner.  
+    **Ability Dep**: Correlation of ability movement to VP. High = ability-dependent winner.  
+    **Start Bias**: Correlation of starting position (racer ID) to VP (inverted).  
+    Positive = benefits from starting last (comeback). Negative = benefits from starting first (frontrunner).  
+    **MidGame Bias**: Correlation of position at 66% race mark to VP.  
+    Positive = leader at 66% wins. Negative = trailing at 66% still wins (late surge)."""
+                    ),
+                ]
+            ),
+            "⚡ Abilities": mo.vstack(
+                [
+                    mo.ui.table(df_abilities, selection=None, page_size=50),
+                    mo.md(
+                        """**Ability Mvmt/Turn**: Average non-dice movement per turn (gross speed - dice rolled).  
+    **Trig/Turn**: Average ability triggers per turn.  
+    **Self/Turn**: Average self-targeted ability uses per turn.  
+    **Tgt/Turn**: Average opponent-targeted ability uses per turn."""
+                    ),
+                ]
+            ),
+            "🔥 Dynamics": mo.vstack(
+                [
+                    mo.ui.table(df_dynamics, selection=None, page_size=50),
+                    mo.md(
+                        """**Volatility**: Average percentage of turns with rank changes in races this racer participated in.  
+    **Tightness**: Average distance from mean position (lower = tighter pack).  
+    **Avg Game Len**: Average total turns per race.  
+    **Race Trigs**: Average ability triggers per race (all racers combined).  
+    **Race Trip%**: Average percentage of turns spent recovering from trips/stuns."""
+                    ),
+                ]
+            ),
         }
     )
 
