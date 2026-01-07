@@ -9,6 +9,7 @@ from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
     EmitsAbilityTriggeredEvent,
     GameEvent,
+    MainMoveSkippedEvent,
     MoveCmdEvent,
     PassingEvent,
     PerformMainRollEvent,
@@ -27,6 +28,7 @@ from magical_athlete_simulator.core.mixins import (
     LifecycleManagedMixin,
 )
 from magical_athlete_simulator.core.registry import RACER_ABILITIES
+from magical_athlete_simulator.core.types import Source
 from magical_athlete_simulator.engine.logging import ContextFilter
 from magical_athlete_simulator.engine.movement import (
     handle_move_cmd,
@@ -461,6 +463,24 @@ class GameEngine:
                 for r in self.state.racers
                 if r.position == tile_idx and r.idx != except_racer_idx and r.active
             ]
+
+    def skip_main_move(self, racer_idx: int, source: Source) -> None:
+        """
+        Marks the racer's main move as consumed and emits a notification event.
+        Does nothing if the move was already consumed.
+        """
+        racer = self.get_racer(racer_idx)
+        if not racer.main_move_consumed:
+            racer.main_move_consumed = True
+            self.log_info(
+                f"{racer.repr} has their main move skipped (Source: {source}).",
+            )
+            self.push_event(
+                MainMoveSkippedEvent(
+                    responsible_racer_idx=racer_idx,
+                    source=source,
+                ),
+            )
 
     # -- Logging --
     def _log(self, level: int, msg: str, *args: Any, **kwargs: Any) -> None:

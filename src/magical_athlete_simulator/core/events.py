@@ -96,6 +96,12 @@ class ResolveMainMoveEvent(GameEvent, HasTargetRacer):
 
 
 @dataclass(frozen=True, kw_only=True)
+class MainMoveSkippedEvent(GameEvent):
+    responsible_racer_idx: int
+    phase: Phase = Phase.ROLL_DICE
+
+
+@dataclass(frozen=True, kw_only=True)
 class PassingEvent(GameEvent):
     responsible_racer_idx: Annotated[int, "The ID of the racer that is passing"]
     target_racer_idx: Annotated[int, "The ID of the racer that is being passed."]
