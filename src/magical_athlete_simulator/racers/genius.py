@@ -42,28 +42,31 @@ class AbilityGenius(Ability, SelectionDecisionMixin[int]):
     ) -> AbilityTriggeredEventOrSkipped:
         # 1. Prediction Phase (Turn Start)
         if isinstance(event, TurnStartEvent):
-            if event.target_racer_idx == owner_idx:
-                self.prediction = agent.make_selection_decision(
-                    engine,
-                    ctx=SelectionDecisionContext[
-                        SelectionInteractive[int],
-                        int,
-                    ](
-                        source=self,
-                        game_state=engine.state,
-                        source_racer_idx=owner_idx,
-                        options=list(range(1, 7)),
-                    ),
-                )
-
-                engine.log_info(f"{self.name}: Predicts a roll of {self.prediction}.")
-                return AbilityTriggeredEvent(
-                    responsible_racer_idx=owner_idx,
-                    source=self.name,
-                    phase=event.phase,
-                )
-            else:
+            if (
+                event.target_racer_idx != owner_idx
+                or engine.get_racer(owner_idx).main_move_consumed
+            ):
                 self.prediction = None
+                return "skip_trigger"
+            self.prediction = agent.make_selection_decision(
+                engine,
+                ctx=SelectionDecisionContext[
+                    SelectionInteractive[int],
+                    int,
+                ](
+                    source=self,
+                    game_state=engine.state,
+                    source_racer_idx=owner_idx,
+                    options=list(range(1, 7)),
+                ),
+            )
+
+            engine.log_info(f"{self.name}: Predicts a roll of {self.prediction}.")
+            return AbilityTriggeredEvent(
+                responsible_racer_idx=owner_idx,
+                source=self.name,
+                phase=event.phase,
+            )
 
         # 2. Check Phase (Roll Window)
         elif (
