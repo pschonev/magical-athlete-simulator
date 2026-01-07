@@ -1562,24 +1562,17 @@ def _(df_positions_f, df_racer_results_f, df_races_f, mo, pl, selected_racers):
                 # 1. Fill basic nulls
                 pl.col("gross_distance").fill_null(0),
                 pl.col("pos_diff_from_median").fill_null(0),
-                # 2. Define Raw Denominators
-                pl.col("turns_taken").alias("total_turns_raw"),
-                (
-                    pl.col("turns_taken")
-                    - pl.col("recovery_turns")
-                    - pl.col("skipped_main_moves")
-                ).alias("rolling_turns_raw"),
             )
             .with_columns(
                 # 3. THE FIX: Convert 0 -> Null (None)
                 # This tells Polars "Do not count this row in averages"
-                pl.when(pl.col("total_turns_raw") <= 0)
+                pl.when(pl.col("turns_taken") <= 0)
                 .then(None)
-                .otherwise(pl.col("total_turns_raw"))
+                .otherwise(pl.col("turns_taken"))
                 .alias("total_turns_clean"),
-                pl.when(pl.col("rolling_turns_raw") <= 0)
+                pl.when(pl.col("rolling_turns") <= 0)
                 .then(None)
-                .otherwise(pl.col("rolling_turns_raw"))
+                .otherwise(pl.col("rolling_turns"))
                 .alias("rolling_turns_clean"),
             )
             .with_columns(
@@ -1601,9 +1594,6 @@ def _(df_positions_f, df_racer_results_f, df_races_f, mo, pl, selected_racers):
                 ),
                 # C. DICE (Uses Rolling Turns)
                 # Only calculated if they actually rolled.
-                (pl.col("sum_dice_rolled") / pl.col("rolling_turns_clean")).alias(
-                    "dice_per_turn"
-                ),
                 (pl.col("sum_dice_rolled") / pl.col("rolling_turns_clean")).alias(
                     "dice_per_rolling_turn"
                 ),
@@ -1634,10 +1624,13 @@ def _(df_positions_f, df_racer_results_f, df_races_f, mo, pl, selected_racers):
                     (pl.col("final_vp") - pl.col("mean_vp_mu")).abs()
                     <= pl.col("std_vp_sigma")
                 )
-                .alias("is_consistent")
+                .alias("is_consistent"),
             )
             .group_by("racer_name")
-            .agg(pl.col("is_consistent").mean().alias("consistency_score"))
+            .agg(
+                pl.col("is_consistent").mean().alias("consistency_score"),
+                pl.col("std_vp_sigma").first().alias("std_dev_val"),
+            )
         )
 
         # 5. Base stats aggregation
@@ -1658,7 +1651,6 @@ def _(df_positions_f, df_racer_results_f, df_races_f, mo, pl, selected_racers):
             )
             .group_by("racer_name")
             .agg(
-                pl.col("racer_id").first().alias("racer_id"),
                 pl.col("final_vp").mean().alias("mean_vp"),
                 (pl.col("rank") == 1).sum().alias("cnt_1st"),
                 (pl.col("rank") == 2).sum().alias("cnt_2nd"),
@@ -1672,8 +1664,7 @@ def _(df_positions_f, df_racer_results_f, df_races_f, mo, pl, selected_racers):
                 # Movement / Dice
                 pl.col("non_dice_movement").mean().alias("avg_ability_move"),
                 pl.col("speed_gross").mean().alias("avg_speed_gross"),
-                pl.col("dice_per_turn").mean().alias("avg_dice_base"),
-                pl.col("dice_per_rolling_turn").mean().alias("avg_dice_rolling"),
+                pl.col("dice_per_rolling_turn").mean().alias("avg_dice_base"),
                 pl.col("final_roll_per_rolling_turn").mean().alias("avg_final_roll"),
                 # Ability usage
                 pl.col("triggers_per_turn").mean(),
@@ -1686,7 +1677,7 @@ def _(df_positions_f, df_racer_results_f, df_races_f, mo, pl, selected_racers):
         corr_df = (
             stats_results.group_by("racer_name")
             .agg(
-                pl.corr("dice_per_turn", "final_vp").alias("dice_dependency"),
+                pl.corr("dice_per_rolling_turn", "final_vp").alias("dice_dependency"),
                 pl.corr("non_dice_movement", "final_vp").alias(
                     "ability_move_dependency"
                 ),
@@ -1709,9 +1700,10 @@ def _(df_positions_f, df_racer_results_f, df_races_f, mo, pl, selected_racers):
                 (pl.col("cnt_2nd") / pl.col("races_run")).alias("pct_2nd"),
                 pl.col("consistency_score").fill_null(0),
                 pl.col("global_win_rate").fill_null(0),
-                (pl.col("avg_final_roll") - pl.col("avg_dice_rolling")).alias(
+                (pl.col("avg_final_roll") - pl.col("avg_dice_base")).alias(
                     "plus_minus_modified"
                 ),
+                pl.col("std_dev_val").fill_null(0).alias("std_vp_sigma"),
             )
         )
 
@@ -1974,7 +1966,7 @@ def _(
         False,
         ["Wildcard", "Reliable Winner", "Erratic", "Reliable Loser"],
         extra_tooltips=[
-            alt.Tooltip("std_vp:Q", format=".2f", title="1σ (Std Dev)"),
+            alt.Tooltip("std_vp_sigma:Q", format=".2f", title="1σ (Std Dev)"),
         ],
     )
 
@@ -2004,7 +1996,7 @@ def _(
         ["Dice-Driven", "Hybrid Winner", "Low Signal", "Ability-Driven"],
         extra_tooltips=[
             alt.Tooltip("avg_ability_move:Q", format=".2f", title="Ability Mvmt/Turn"),
-            alt.Tooltip("avg_dice_rolling:Q", format=".2f", title="Dice/Rolling Turn"),
+            alt.Tooltip("avg_dice_base:Q", format=".2f", title="Dice/Rolling Turn"),
         ],
     )
 
