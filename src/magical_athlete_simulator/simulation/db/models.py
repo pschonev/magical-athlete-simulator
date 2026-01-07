@@ -53,6 +53,7 @@ class RacerResult(SQLModel, table=True):
     turns_taken: int = 0
     recovery_turns: int = 0
     skipped_main_moves: int = 0
+    rolling_turns: int = 0
     sum_dice_rolled: int = 0
     sum_dice_rolled_final: int = 0
 

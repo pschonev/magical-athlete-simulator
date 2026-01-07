@@ -187,6 +187,7 @@ class MetricsAggregator:
             racer_metrics = self._get_result(event.target_racer_idx)
             racer_metrics.sum_dice_rolled += event.base_value
             racer_metrics.sum_dice_rolled_final += event.final_value
+            racer_metrics.rolling_turns += 1
 
         if isinstance(event, AbilityTriggeredEvent):
             stats = self._get_result(event.responsible_racer_idx)
