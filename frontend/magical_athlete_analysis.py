@@ -1,10 +1,11 @@
 # /// script
 # requires-python = ">=3.14"
-# frontend = [
-#     "marimo",
-#     "magical-athlete-simulator",
-#     "polars>=1.36.1",
-#     "altair>=6.0.0",
+# dependencies = [
+#     "altair==6.0.0",
+#     "magical-athlete-simulator==0.2.0",
+#     "polars==1.36.1",
+#     "rich==14.2.0",
+#     "sqlmodel==0.0.31",
 # ]
 # ///
 
@@ -1563,13 +1564,17 @@ def _(df_positions_f, df_racer_results_f, df_races_f, mo, pl, selected_racers):
                 pl.col("gross_distance").fill_null(0),
                 pl.col("pos_diff_from_median").fill_null(0),
                 pl.col("turns_taken").clip(lower_bound=1).alias("total_turns"),
-                (pl.col("turns_taken") - pl.col("recovery_turns"))
+                (
+                    pl.col("turns_taken")
+                    - pl.col("recovery_turns")
+                    - pl.col("skipped_main_moves")
+                )
                 .clip(lower_bound=1)
                 .alias("rolling_turns"),
             )
             .with_columns(
                 (pl.col("gross_distance") / pl.col("total_turns")).alias("speed_gross"),
-                (pl.col("sum_dice_rolled") / pl.col("total_turns")).alias(
+                (pl.col("sum_dice_rolled") / pl.col("rolling_turns")).alias(
                     "dice_per_turn"
                 ),
                 (pl.col("sum_dice_rolled") / pl.col("rolling_turns")).alias(
