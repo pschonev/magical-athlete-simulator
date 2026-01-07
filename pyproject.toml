@@ -2,9 +2,14 @@
 name = "magical-athlete-simulator"
 version = "0.2.0"
 description = "A simulator for Magical Athlete"
+authors = [{ name = "Philipp Schoneville", email = "philipp@schoneville.com" }]
+license = "MIT"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = ["pyarrow>=22.0.0", "rich>=14.2.0"]
+
+[project.urls]
+Repository = "https://github.com/pschonev/magical-athlete-simulator"
 
 [project.optional-dependencies]
 cli = [
@@ -15,17 +20,8 @@ cli = [
     "tqdm>=4.67.1",
 ]
 
-frontend = [
-    "marimo",
-    "magical-athlete-simulator",
-    "polars>=1.36.1",
-    "altair>=6.0.0",
-]
-
-
 [dependency-groups]
 dev = ["pytest>=9.0.2", "basedpyright==1.23.0", "marimo[lsp]", "ruff>=0.14.10"]
-
 
 [project.scripts]
 magical-sim = "magical_athlete_simulator.cli:main"
@@ -47,13 +43,12 @@ ignore = [
 
 # Ruff
 [tool.ruff]
-exclude = ["tests", "apps/frontend"]
+exclude = ["tests"]
 target-version = "py314"
 
 # Pyright
 [tool.basedpyright]
 include = ["src", "tests"]
-exclude = ["apps/frontend"]
 executionEnvironments = [{ root = "src" }, { root = "tests" }]
 
 
