@@ -166,6 +166,8 @@ def _(
             def _wasm_read_parquet(path: Path) -> pl.DataFrame:
                 with urllib.request.urlopen(path) as response:
                     parquet_bytes = response.read()
+                print(f"DEBUG: Read {len(parquet_bytes)} bytes from {path}")
+                print(f"DEBUG: First 100 bytes: {parquet_bytes[:100]}")
                 return pl.read_parquet(io.BytesIO(parquet_bytes), use_pyarrow=True)
 
             df_racer_results = _wasm_read_parquet(path_res)
