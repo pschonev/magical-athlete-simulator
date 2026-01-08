@@ -5,6 +5,8 @@
 #     "polars==1.36.1",
 #     "sqlmodel==0.0.31",
 # ]
+# [tool.marimo.display]
+# theme = "dark"
 # ///
 
 import marimo
@@ -53,6 +55,7 @@ async def _():
 
     # Imports
     from magical_athlete_simulator.engine.scenario import GameScenario, RacerConfig
+
     return (
         Any,
         BOARD_DEFINITIONS,
@@ -459,6 +462,7 @@ def _(StepSnapshot, get_racer_color, math):
             {track_group_start}
             {"".join(svg_elements)}
         </svg>"""
+
     return (render_game_track,)
 
 
