@@ -215,4 +215,4 @@ rules.md
 
 .gitignore
 
-results/
+/results

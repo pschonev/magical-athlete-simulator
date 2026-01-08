@@ -53,7 +53,6 @@ async def _():
 
     # Imports
     from magical_athlete_simulator.engine.scenario import GameScenario, RacerConfig
-
     return (
         Any,
         BOARD_DEFINITIONS,
@@ -90,7 +89,7 @@ def _(mo):
     is_url = isinstance(notebook_loc, mo._runtime.runtime.URLPath)
 
     default_results_path = (
-        notebook_loc / "results" if is_url else notebook_loc / ".." / "results"
+        notebook_loc / "docs" / "results" if is_url else notebook_loc / ".." / "results"
     )
 
     if is_url:
@@ -460,7 +459,6 @@ def _(StepSnapshot, get_racer_color, math):
             {track_group_start}
             {"".join(svg_elements)}
         </svg>"""
-
     return (render_game_track,)
 
 
