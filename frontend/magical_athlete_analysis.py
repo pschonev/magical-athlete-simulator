@@ -92,7 +92,7 @@ def _(mo):
     is_url = isinstance(notebook_loc, mo._runtime.runtime.URLPath)
 
     default_results_path = (
-        notebook_loc / "docs" / "results" if is_url else notebook_loc / ".." / "results"
+        notebook_loc / "results" if is_url else notebook_loc / ".." / "results"
     )
 
     if is_url:
