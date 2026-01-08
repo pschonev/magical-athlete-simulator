@@ -1,8 +1,12 @@
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Self, override
 
 from magical_athlete_simulator.core.abilities import Ability
-from magical_athlete_simulator.core.agent import Agent, SelectionDecisionContext
+from magical_athlete_simulator.core.agent import (
+    Agent,
+    SelectionDecisionContext,
+    SelectionDecisionMixin,
+)
 from magical_athlete_simulator.core.events import (
     AbilityTriggeredEvent,
     AbilityTriggeredEventOrSkipped,
@@ -11,15 +15,15 @@ from magical_athlete_simulator.core.events import (
     PostWarpEvent,
     TurnStartEvent,
 )
+from magical_athlete_simulator.core.state import RacerState
 
 if TYPE_CHECKING:
-    from magical_athlete_simulator.core.state import RacerState
     from magical_athlete_simulator.core.types import AbilityName
     from magical_athlete_simulator.engine.game_engine import GameEngine
 
 
 @dataclass
-class AbilityCopyLead(Ability):
+class AbilityCopyLead(Ability, SelectionDecisionMixin[RacerState]):
     name: AbilityName = "CopyLead"
     triggers: tuple[type[GameEvent], ...] = (
         TurnStartEvent,
@@ -132,7 +136,7 @@ class AbilityCopyLead(Ability):
     def get_auto_selection_decision(
         self,
         engine: GameEngine,
-        ctx: SelectionDecisionContext,
+        ctx: SelectionDecisionContext[Self, RacerState],
     ) -> RacerState:
         # Always return the first option (deterministic tie-break)
         # options are already sorted by idx in execute()
