@@ -51,6 +51,7 @@ class AbilitySkipper(Ability):
                 responsible_racer_idx=owner_idx,
                 source=self.name,
                 phase=event.phase,
+                target_racer_idx=owner_idx,
             )
 
         return "skip_trigger"

@@ -28,7 +28,6 @@ from magical_athlete_simulator.core.mixins import (
     LifecycleManagedMixin,
 )
 from magical_athlete_simulator.core.registry import RACER_ABILITIES
-from magical_athlete_simulator.core.types import Source
 from magical_athlete_simulator.engine.logging import ContextFilter
 from magical_athlete_simulator.engine.movement import (
     handle_move_cmd,
@@ -52,7 +51,7 @@ if TYPE_CHECKING:
         LogContext,
         RacerState,
     )
-    from magical_athlete_simulator.core.types import AbilityName
+    from magical_athlete_simulator.core.types import AbilityName, Source
 
 
 AbilityCallback = Callable[[GameEvent, int, "GameEngine"], None]

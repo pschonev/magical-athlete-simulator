@@ -31,7 +31,12 @@ def handle_perform_main_roll(engine: GameEngine, event: PerformMainRollEvent) ->
     # Apply ALL modifiers attached to this racer
     for mod in engine.get_racer(event.target_racer_idx).modifiers:
         if isinstance(mod, RollModificationMixin):
-            mod.modify_roll(query, mod.owner_idx, engine)
+            mod.modify_roll(
+                query,
+                mod.owner_idx,
+                engine,
+                rolling_racer_idx=event.target_racer_idx,
+            )
 
     final = query.final_value
     engine.state.roll_state.base_value = base

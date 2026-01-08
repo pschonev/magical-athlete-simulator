@@ -86,6 +86,7 @@ class ModifierPartySelfBoost(RacerModifier, RollModificationMixin):
         query: MoveDistanceQuery,
         owner_idx: int | None,
         engine: GameEngine,
+        rolling_racer_idx: int,
     ) -> None:
         # This modifier is attached to Party Animal, affects their own roll
         # owner_idx is Party Animal, query.racer_idx is also Party Animal
@@ -107,7 +108,12 @@ class ModifierPartySelfBoost(RacerModifier, RollModificationMixin):
             query.modifiers.append(bonus)
             query.modifier_sources.append((self.name, bonus))
             engine.push_event(
-                AbilityTriggeredEvent(owner_idx, self.name, Phase.ROLL_WINDOW),
+                AbilityTriggeredEvent(
+                    owner_idx,
+                    self.name,
+                    Phase.ROLL_WINDOW,
+                    target_racer_idx=owner_idx,
+                ),
             )
 
 

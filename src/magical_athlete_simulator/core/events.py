@@ -182,7 +182,7 @@ class PostWarpEvent(GameEvent, HasTargetRacer):
 class AbilityTriggeredEvent(GameEvent):
     responsible_racer_idx: int
     source: AbilityName | ModifierName
-    target_racer_idx: int | None = None
+    target_racer_idx: int | None
 
     @classmethod
     def from_event(cls, event: GameEvent) -> Self:

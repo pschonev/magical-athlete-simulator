@@ -67,6 +67,7 @@ class AbilityGenius(Ability, SelectionDecisionMixin[int]):
                 responsible_racer_idx=owner_idx,
                 source=self.name,
                 phase=event.phase,
+                target_racer_idx=owner_idx,
             )
 
         # 2. Check Phase (Roll Window)
@@ -88,6 +89,7 @@ class AbilityGenius(Ability, SelectionDecisionMixin[int]):
                 responsible_racer_idx=owner_idx,
                 source=self.name,
                 phase=event.phase,
+                target_racer_idx=owner_idx,
             )
 
         return "skip_trigger"

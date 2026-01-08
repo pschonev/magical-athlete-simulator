@@ -38,7 +38,7 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
     def on_approach(
         self,
         target: int,
-        modifier_owner_idx: int,
+        moving_racer_idx: int,
         engine: GameEngine,
         event: GameEvent,
     ) -> int:
@@ -54,6 +54,7 @@ class HugeBabyModifier(SpaceModifier, ApproachHookMixin):
                 self.owner_idx,
                 source=self.name,
                 phase=Phase.SYSTEM,
+                target_racer_idx=moving_racer_idx,
             ),
         )
         # Redirect to the previous tile
@@ -151,7 +152,12 @@ class HugeBabyPush(Ability, LifecycleManagedMixin):
 
                 # Explicitly emit a trigger for THIS push.
                 engine.push_event(
-                    AbilityTriggeredEvent(owner_idx, self.name, event.phase),
+                    AbilityTriggeredEvent(
+                        owner_idx,
+                        self.name,
+                        event.phase,
+                        target_racer_idx=v.idx,
+                    ),
                 )
 
             # Return False because we handled our own emissions.

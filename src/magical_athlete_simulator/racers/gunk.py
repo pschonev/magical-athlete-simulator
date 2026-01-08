@@ -33,6 +33,7 @@ class ModifierSlime(RacerModifier, RollModificationMixin):
         query: MoveDistanceQuery,
         owner_idx: int | None,
         engine: GameEngine,
+        rolling_racer_idx: int,
     ) -> None:
         # This modifier is attached to the VICTIM, and affects their roll
         # owner_idx is Gunk, query.racer_idx is the victim
@@ -42,7 +43,12 @@ class ModifierSlime(RacerModifier, RollModificationMixin):
         if owner_idx is None:
             raise ValueError("owner_idx should never be None for ModifierSlime")
         engine.push_event(
-            AbilityTriggeredEvent(owner_idx, self.name, phase=Phase.ROLL_WINDOW),
+            AbilityTriggeredEvent(
+                owner_idx,
+                self.name,
+                phase=Phase.ROLL_WINDOW,
+                target_racer_idx=rolling_racer_idx,
+            ),
         )
 
 

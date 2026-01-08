@@ -139,31 +139,33 @@ def test_copycat_copies_party_pull_and_triggers_scoocher(scenario: type[GameScen
     assert copycat.position >= 10, "Copycat should have gotten into loop with Scoocher and come second."
     assert "PartyPull" not in copycat.abilities, "Race has ended, Copycat lost all his abilities"
 
-def test_copycat_copies_mastermind_and_wins_second(scenario: type[GameScenario]):
-    game = scenario(
-        [
-            RacerConfig(idx=0, name="Centaur", start_pos=20),  # Distraction
-            RacerConfig(idx=1, name="Mastermind",start_pos=25),
-            RacerConfig(idx=2, name="Copycat", start_pos=0),
-        ],
-        dice_rolls=[1, 6],
-    )
-    game.run_turn()
+# This test only makes sense if Copycat can actually copy Mastermind's prediction outside of the starting turn: Up for debate 
+#
+# def test_copycat_copies_mastermind_and_wins_second(scenario: type[GameScenario]):
+#     game = scenario(
+#         [
+#             RacerConfig(idx=0, name="Centaur", start_pos=20),  # Distraction
+#             RacerConfig(idx=1, name="Mastermind",start_pos=25),
+#             RacerConfig(idx=2, name="Copycat", start_pos=0),
+#         ],
+#         dice_rolls=[1, 6],
+#     )
+#     game.run_turn()
     
-    mastermind = game.get_racer(1)
-    copycat = game.get_racer(2)
+#     mastermind = game.get_racer(1)
+#     copycat = game.get_racer(2)
     
-    assert "MastermindPredict" in copycat.abilities
-    copied_mastermind_ability = cast(AbilityMastermindPredict, copycat.active_abilities["MastermindPredict"])
-    assert copied_mastermind_ability.prediction == 1
-    game.run_turn()
+#     assert "MastermindPredict" in copycat.abilities
+#     copied_mastermind_ability = cast(AbilityMastermindPredict, copycat.active_abilities["MastermindPredict"])
+#     assert copied_mastermind_ability.prediction == 1
+#     game.run_turn()
 
-    # --- Verify Results ---
-    assert mastermind.finished
-    assert mastermind.finish_position == 1
+#     # --- Verify Results ---
+#     assert mastermind.finished
+#     assert mastermind.finish_position == 1
     
-    assert copycat.finished
-    assert copycat.finish_position == 2
+#     assert copycat.finished
+#     assert copycat.finish_position == 2
     
-    # Verify Game Over logic (2 finishers = Race Over)
-    assert game.engine.state.race_over
+#     # Verify Game Over logic (2 finishers = Race Over)
+#     assert game.engine.state.race_over

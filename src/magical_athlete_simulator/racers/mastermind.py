@@ -78,6 +78,7 @@ class AbilityMastermindPredict(Ability, SelectionDecisionMixin[RacerState]):
                     responsible_racer_idx=owner_idx,
                     source=self.name,
                     phase=event.phase,
+                    target_racer_idx=target_racer.idx,
                 )
 
         # ---------------------------------------------------------------------
@@ -111,6 +112,7 @@ class AbilityMastermindPredict(Ability, SelectionDecisionMixin[RacerState]):
                                 responsible_racer_idx=owner_idx,
                                 source=self.name,
                                 phase=event.phase,
+                                target_racer_idx=owner_idx,
                             ),
                         )
                     if engine.state.rules.hr_mastermind_steal_1st:

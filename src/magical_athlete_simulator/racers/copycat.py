@@ -130,6 +130,7 @@ class AbilityCopyLead(Ability, SelectionDecisionMixin[RacerState]):
             responsible_racer_idx=owner_idx,
             source=self.name,
             phase=event.phase,
+            target_racer_idx=target.idx,
         )
 
     @override

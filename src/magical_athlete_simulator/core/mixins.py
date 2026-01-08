@@ -19,6 +19,7 @@ class RollModificationMixin(ABC):
         query: MoveDistanceQuery,
         owner_idx: int | None,
         engine: GameEngine,
+        rolling_racer_idx: int,
     ) -> None:
         pass
 
@@ -30,7 +31,7 @@ class ApproachHookMixin(ABC):
     def on_approach(
         self,
         target: int,
-        modifier_owner_idx: int,
+        moving_racer_idx: int,
         engine: GameEngine,
         event: GameEvent,
     ) -> int:
