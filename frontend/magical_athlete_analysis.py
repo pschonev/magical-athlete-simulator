@@ -23,18 +23,20 @@ def _():
 
 @app.cell
 async def _():
+    from __future__ import annotations
+
     import logging
     import math
     import micropip
     import re
-    from typing import get_args
+    from typing import get_args, Any, Literal
 
     import altair as alt
     import marimo as mo
     from rich.console import Console
     from rich.logging import RichHandler
 
-    await micropip.install("magical-athlete-simulator==0.2.2", keep_going=True)
+    await micropip.install("magical-athlete-simulator==0.3.0", keep_going=True)
 
     from magical_athlete_simulator.core.events import (
         MoveCmdEvent,
@@ -47,19 +49,23 @@ async def _():
         GameLogHighlighter,
         RichMarkupFormatter,
     )
+    from magical_athlete_simulator.simulation.telemetry import StepSnapshot
 
     # Imports
     from magical_athlete_simulator.engine.scenario import GameScenario, RacerConfig
     return (
+        Any,
         BOARD_DEFINITIONS,
         Console,
         GameLogHighlighter,
         GameScenario,
+        Literal,
         MoveCmdEvent,
         RacerConfig,
         RacerName,
         RichHandler,
         RichMarkupFormatter,
+        StepSnapshot,
         TripCmdEvent,
         WarpCmdEvent,
         alt,
@@ -78,49 +84,111 @@ def _(mo):
 
     reload_data_btn = mo.ui.button(label="⟳ Reload Data")
 
-    inital_folder = mo.notebook_location() / "results"
-    if not inital_folder.is_dir():
-        inital_folder = "results"
+    # 1. Get location and check type
+    notebook_loc = mo.notebook_location()
+    is_url = isinstance(notebook_loc, mo._runtime.runtime.URLPath)
 
-    results_folder_browser = mo.ui.file_browser(
-        selection_mode="directory",
-        label="Select Results Folder",
-        initial_path=inital_folder,
+    default_results_path = (
+        notebook_loc / "results" if is_url else notebook_loc / ".." / "results"
     )
-    return Path, pl, reload_data_btn, results_folder_browser
+
+    if is_url:
+        # If running via URL (e.g. WASM), we can't use a local file browser
+        results_folder_browser = None
+        print(f"Running in URL mode. Base: {default_results_path}")
+    else:
+        # If local, create the browser
+        # Ensure we convert Path to string for the widget
+        results_folder_browser = mo.ui.file_browser(
+            selection_mode="directory",
+            label="Select Results Folder",
+            initial_path=str(default_results_path),
+        )
+        print(f"Running locally. Default results path: {default_results_path}")
+    return (
+        Path,
+        default_results_path,
+        is_url,
+        pl,
+        reload_data_btn,
+        results_folder_browser,
+    )
 
 
 @app.cell
-def _(Path, pl, reload_data_btn, results_folder_browser):
+def _(
+    Path,
+    default_results_path,
+    is_url,
+    pl,
+    reload_data_btn,
+    results_folder_browser,
+):
     reload_data_btn.value
 
-    # 1. Determine the Base Folder as a Path object
-    if results_folder_browser.value:
-        base_folder = Path(results_folder_browser.value[0].path)
+    # 1. Determine the Base Folder
+    if is_url:
+        # URL Mode: Use the URLPath object directly
+        base_folder = default_results_path
     else:
-        base_folder = Path("results")
+        # Local Mode: Use browser value if selected, else default
+        if results_folder_browser.value:
+            base_folder = Path(results_folder_browser.value[0].path)
+        else:
+            base_folder = Path("results")
 
-    # 2. Construct Paths using the slash operator
+    # 2. Construct Paths
+    # (The / operator works on both pathlib.Path and marimo URLPath objects)
     path_races = base_folder / "races.parquet"
     path_res = base_folder / "racer_results.parquet"
     path_positions = base_folder / "race_positions.parquet"
 
     # 3. Load Data
     try:
-        if not path_races.exists() or not path_res.exists():
-            raise FileNotFoundError(
-                f"Folder '{base_folder}' must contain 'races.parquet' and 'racer_results.parquet'"
-            )
+        if not is_url:  # noqa: SIM102
+            if (
+                not Path(path_races).exists()
+                or not Path(path_res).exists()
+                or not Path(path_positions).exists()
+            ):
+                raise FileNotFoundError(
+                    f"Folder '{base_folder}' must contain 'races.parquet', 'racer_results.parquet' and 'race_positions.parquet'"
+                )
 
-        df_racer_results = pl.read_parquet(path_res)
-        df_races = pl.read_parquet(path_races)
-        df_positions = pl.read_parquet(path_positions)
+        if is_url:
+            import io
+            import urllib.request
+            import pyarrow as pa
+
+            def _wasm_read_parquet(path: Path) -> pl.DataFrame:
+                with urllib.request.urlopen(path) as response:
+                    parquet_bytes = response.read()
+                return pl.read_parquet(io.BytesIO(parquet_bytes), use_pyarrow=True)
+
+            df_racer_results = _wasm_read_parquet(path_res)
+            df_races = _wasm_read_parquet(path_races)
+            df_positions = _wasm_read_parquet(path_positions)
+        else:
+            df_racer_results = pl.read_parquet(path_res)
+            df_races = pl.read_parquet(path_races)
+            df_positions = pl.read_parquet(path_positions)
         load_status = f"✅ Loaded from: `{base_folder}`"
     except Exception as e:
         df_racer_results = pl.DataFrame()
         df_races = pl.DataFrame()
         df_positions = pl.DataFrame()
         load_status = f"❌ Error: {str(e)}"
+        print(load_status)
+
+    print(
+        f"df_racer_results: {df_racer_results.height} rows, path `{path_races}` and columns: {df_racer_results.columns}"
+    )
+    print(
+        f"df_racer_results: {df_races.height} rows, path `{path_res}` and columns: {df_races.columns}"
+    )
+    print(
+        f"df_racer_results: {df_positions.height} rows, path `{path_positions}` and columns: {df_positions.columns}"
+    )
     return df_positions, df_racer_results, df_races, load_status
 
 
