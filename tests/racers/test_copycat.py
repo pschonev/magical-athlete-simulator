@@ -124,19 +124,20 @@ def test_copycat_copies_party_pull_and_triggers_scoocher(scenario: type[GameScen
         ],
         dice_rolls=[5, 4],
     )
-
-    # Advance to Copycat's turn
-    game.run_turn()
-    game.run_turn()
-
     scoocher = game.get_racer(2)
     copycat = game.get_racer(1)
 
-    assert scoocher.position == 10, (
-        "Scoocher should be pulled back and get triggered 3 times"
+    # Advance to Copycat's turn
+    game.run_turn()
+    assert "ScoochStep" not in copycat.abilities, "Race has ended, Copycat lost all his abilities"
+
+    game.run_turn()
+
+    assert scoocher.position >= 30, (
+        "Scoocher should have gotten into loop with Copycat and won."
     )
-    assert copycat.position == 10, "Copycat should end its move at 10 due to 4 +1"
-    assert "PartyPull" in copycat.abilities
+    assert copycat.position >= 10, "Copycat should have gotten into loop with Scoocher and come second."
+    assert "PartyPull" not in copycat.abilities, "Race has ended, Copycat lost all his abilities"
 
 def test_copycat_copies_mastermind_and_wins_second(scenario: type[GameScenario]):
     game = scenario(

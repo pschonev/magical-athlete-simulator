@@ -42,7 +42,11 @@ class PartyAnimalPull(Ability):
         agent: Agent,
     ):
         # Only trigger on Party Animal's own turn start
-        if not isinstance(event, TurnStartEvent) or owner_idx != event.target_racer_idx:
+        if (
+            not isinstance(event, TurnStartEvent)
+            or owner_idx != event.target_racer_idx
+            or engine.state.current_racer_idx != owner_idx
+        ):
             return "skip_trigger"
 
         pa = engine.get_racer(owner_idx)

@@ -43,7 +43,11 @@ class AbilityMastermindPredict(Ability, SelectionDecisionMixin[RacerState]):
         # Trigger 1: Make Prediction (Start of Mastermind's first turn)
         # ---------------------------------------------------------------------
         if isinstance(event, TurnStartEvent):
-            if event.target_racer_idx == owner_idx and self.prediction is None:
+            if (
+                event.target_racer_idx == owner_idx
+                and self.prediction is None
+                and engine.state.current_racer_idx == owner_idx
+            ):
                 target_racer = agent.make_selection_decision(
                     engine,
                     ctx=SelectionDecisionContext[

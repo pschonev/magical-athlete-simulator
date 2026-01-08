@@ -45,6 +45,7 @@ class AbilityGenius(Ability, SelectionDecisionMixin[int]):
             if (
                 event.target_racer_idx != owner_idx
                 or engine.get_racer(owner_idx).main_move_consumed
+                or engine.state.current_racer_idx != owner_idx
             ):
                 self.prediction = None
                 return "skip_trigger"
