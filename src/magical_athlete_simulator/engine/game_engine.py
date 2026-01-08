@@ -56,6 +56,8 @@ if TYPE_CHECKING:
     )
     from magical_athlete_simulator.core.types import AbilityName, ErrorCode, Source
 
+HEURISTIC_LOOP_MAXIMUM = 5
+HARD_LIMIT_BOARD_STATE = 200
 
 AbilityCallback = Callable[[GameEvent, int, "GameEngine"], None]
 
@@ -77,6 +79,12 @@ class HeuristicKey:
 
 
 @dataclass
+class LoopTrackingData:
+    min_queue_len: int
+    visit_count: int
+
+
+@dataclass
 class GameEngine:
     state: GameState
     rng: random.Random
@@ -89,7 +97,9 @@ class GameEngine:
 
     # LOOP DETECTION
     # 1. Heuristic History: Tracks (Board+Event) -> Min Queue Size
-    heuristic_history: dict[HeuristicKey, int] = field(default_factory=dict)
+    heuristic_history: dict[HeuristicKey, LoopTrackingData] = field(
+        default_factory=dict,
+    )
     # 2. Creation Hashes: Maps Event.Serial -> BoardHash at creation time.
     #    Used to detect "Lagging" events that shouldn't trigger loop detection.
     event_creation_hashes: dict[int, int] = field(default_factory=dict)
@@ -180,9 +190,9 @@ class GameEngine:
 
             # If we have visited this EXACT board configuration more than X times,
             # we are likely in a loop (e.g. Move Fwd -> Move Back -> Move Fwd).
-            if board_visit_counts[current_board_hash] > 10:
+            if board_visit_counts[current_board_hash] > HARD_LIMIT_BOARD_STATE:
                 self.log_error(
-                    f"Infinite Loop Detected: Board state visited {board_visit_counts[current_board_hash]} times. Aborting turn to prevent hang.",
+                    f"CRITICAL_LOOP_DETECTED: Board state visited {board_visit_counts[current_board_hash]} times. Aborting turn to prevent hang.",
                 )
                 self.state.queue.clear()  # Nuclear option: Stop everything
                 self.bug_reason = "CRITICAL_LOOP_DETECTED"
@@ -201,7 +211,6 @@ class GameEngine:
                 self.log_warning(
                     f"Infinite loop detected (Exact State Cycle). Dropping recursive event: {skipped_sched.event}",
                 )
-                self.bug_reason = "MINOR_LOOP_DETECTED"
                 continue
 
             self.state.history.add(current_hash)
@@ -213,11 +222,16 @@ class GameEngine:
             creation_hash = self.event_creation_hashes.pop(sched.serial, None)
 
             # --- LAYER 2: Heuristic Detection (High-Water Mark) ---
-            # Catches Exploding Queues (Scenario 3)
+            # Catches Exploding Queues
             # Checks if we are repeating work on the SAME board state.
             if self._check_heuristic_loop(sched, creation_hash):
                 self.log_warning(
-                    f"Infinite loop detected (Heuristic/Exploding). Dropping: {sched.event}",
+                    f"MINOR_LOOP_DETECTED (Heuristic/Exploding). Dropping: {sched.event}",
+                )
+                self.bug_reason = (
+                    "MINOR_LOOP_DETECTED"
+                    if self.bug_reason != "CRITICAL_LOOP_DETECTED"
+                    else self.bug_reason
                 )
                 continue
 
@@ -230,15 +244,9 @@ class GameEngine:
         sched: ScheduledEvent,
         creation_hash: int | None,
     ) -> bool:
-        """
-        Returns True if a heuristic loop is detected.
-        """
         current_board_hash = self._calculate_board_hash()
 
-        # STALE EVENT CHECK:
-        # If this event was created during a different board state, it is "lagging".
-        # It represents a reaction to a past state, not a loop in the current state.
-        # We allow it to resolve (drain).
+        # (Lagging event check remains the same...)
         if creation_hash is not None and creation_hash != current_board_hash:
             return False
 
@@ -252,21 +260,26 @@ class GameEngine:
 
         current_q_len = len(self.state.queue)
 
-        if key in self.heuristic_history:
-            prev_q_len = self.heuristic_history[key]
-
-            # If we are back at the exact same state, processing the exact same event,
-            # and the queue has not shrunk, we are spinning our wheels.
-            if current_q_len >= prev_q_len:
-                return True
-
-            # If queue shrank (e.g. bouncing off walls), update high-water mark and proceed.
-            self.heuristic_history[key] = current_q_len
+        if key not in self.heuristic_history:
+            # First visit: Initialize with 1 visit
+            self.heuristic_history[key] = LoopTrackingData(current_q_len, 1)
             return False
 
-        else:
-            self.heuristic_history[key] = current_q_len
+        # We have been here before!
+        data = self.heuristic_history[key]
+
+        # If the queue has shrunk since our last visit, we are making progress.
+        # Reset the strikes (or keep them, depending on how strict you want to be. Reset is safer).
+        if current_q_len < data.min_queue_len:
+            data.min_queue_len = current_q_len
+            data.visit_count = 1  # Reset count because we made progress
             return False
+
+        # The queue is stable or growing. This is suspicious.
+        data.visit_count += 1
+
+        # ONLY trigger if we have failed to make progress X times in a row.
+        return data.visit_count > HEURISTIC_LOOP_MAXIMUM
 
     def _calculate_board_hash(self) -> int:
         """

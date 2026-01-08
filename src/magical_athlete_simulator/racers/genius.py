@@ -87,12 +87,9 @@ class AbilityGenius(Ability, SelectionDecisionMixin[int]):
             # Set the override.
             engine.state.next_turn_override = owner_idx
 
-            return AbilityTriggeredEvent(
-                responsible_racer_idx=owner_idx,
-                source=self.name,
-                phase=event.phase,
-                target_racer_idx=owner_idx,
-            )
+            # predicting = using the power
+            # https://boardgamegeek.com/thread/3595157/article/46761348#46761348
+            return "skip_trigger"
 
         return "skip_trigger"
 
