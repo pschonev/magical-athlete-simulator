@@ -1,21 +1,22 @@
 """Database manager for persisting simulation results."""
 
+from __future__ import annotations
+
 import atexit
 import logging
 from typing import TYPE_CHECKING
 
+import pyarrow as pa
 from sqlmodel import SQLModel, create_engine
 from tqdm import tqdm
-
-from magical_athlete_simulator.simulation.db.models import (
-    Race,
-    RacerResult,
-)
-import pyarrow as pa
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from magical_athlete_simulator.simulation.db.models import (
+        Race,
+        RacerResult,
+    )
     from magical_athlete_simulator.simulation.telemetry import PositionLogColumns
 
 logger = logging.getLogger("magical_athlete")
@@ -87,21 +88,22 @@ class SimulationDatabase:
         try:
             if self.races_parquet.exists():
                 self.raw_conn.execute(
-                    f"INSERT INTO races SELECT * FROM read_parquet('{self.races_parquet}')",
+                    f"INSERT INTO races SELECT * FROM read_parquet('{self.races_parquet}')",  # noqa: S608
                 )
             if self.results_parquet.exists():
                 self.raw_conn.execute(
-                    f"INSERT INTO racer_results SELECT * FROM read_parquet('{self.results_parquet}')",
+                    f"INSERT INTO racer_results SELECT * FROM read_parquet('{self.results_parquet}')",  # noqa: S608
                 )
             if self.positions_parquet.exists():
                 self.raw_conn.execute(
-                    f"INSERT INTO race_position_logs SELECT * FROM read_parquet('{self.positions_parquet}')",
+                    f"INSERT INTO race_position_logs SELECT * FROM read_parquet('{self.positions_parquet}')",  # noqa: S608
                 )
             self.raw_conn.commit()
             tqdm.write("✅ Import complete.")
-        except Exception as e:
-            logger.error(f"Failed to import existing parquet: {e}")
+        except Exception:
+            logger.exception("Failed to import existing parquet")
             self.raw_conn.rollback()
+            raise
 
     def get_known_hashes(self) -> set[str]:
         """
@@ -112,7 +114,7 @@ class SimulationDatabase:
             cur = self.raw_conn.cursor()
             res = cur.execute("SELECT config_hash FROM races").fetchall()
             return {r[0] for r in res}
-        except Exception:
+        except Exception:  # noqa: BLE001
             return set()
 
     def save_simulation(
@@ -126,7 +128,7 @@ class SimulationDatabase:
         self._result_buffer.extend([r.model_dump() for r in results])
 
         for key in self._position_buffer_cols:
-            self._position_buffer_cols[key].extend(positions[key])  # type: ignore
+            self._position_buffer_cols[key].extend(positions[key])
 
     def flush_to_parquet(self):
         """
@@ -148,7 +150,7 @@ class SimulationDatabase:
 
                 # Bulk Insert
                 self.raw_conn.execute(
-                    "INSERT OR IGNORE INTO races SELECT * FROM temp_races_buffer"
+                    "INSERT OR IGNORE INTO races SELECT * FROM temp_races_buffer",
                 )
 
                 # Cleanup
@@ -159,7 +161,7 @@ class SimulationDatabase:
                 table = pa.Table.from_pylist(self._result_buffer)
                 self.raw_conn.register("temp_results_buffer", table)
                 self.raw_conn.execute(
-                    "INSERT OR IGNORE INTO racer_results SELECT * FROM temp_results_buffer"
+                    "INSERT OR IGNORE INTO racer_results SELECT * FROM temp_results_buffer",
                 )
                 self.raw_conn.unregister("temp_results_buffer")
 
@@ -175,7 +177,7 @@ class SimulationDatabase:
 
                 # Bulk insert millions of rows in milliseconds
                 self.raw_conn.execute(
-                    "INSERT OR IGNORE INTO race_position_logs SELECT * FROM temp_pos_buffer"
+                    "INSERT OR IGNORE INTO race_position_logs SELECT * FROM temp_pos_buffer",
                 )
 
                 self.raw_conn.unregister("temp_pos_buffer")
@@ -183,16 +185,16 @@ class SimulationDatabase:
             # Commit
             self.raw_conn.commit()
 
-        except Exception as e:
-            logger.error(f"Failed to flush to DB: {e}")
+        except Exception:
+            logger.exception("Failed to flush to DB")
             # If Arrow conversion fails, you might want to log the specific data causing it
-            raise e
+            raise
 
         # Clear buffers
         self._race_buffer.clear()
         self._result_buffer.clear()
         for key in self._position_buffer_cols:
-            self._position_buffer_cols[key].clear()  # type: ignore
+            self._position_buffer_cols[key].clear()
 
     def export_parquet(self):
         """
@@ -210,8 +212,9 @@ class SimulationDatabase:
                 f"COPY race_position_logs TO '{self.positions_parquet}' (FORMAT PARQUET, CODEC 'ZSTD')",
             )
             tqdm.write("✅ Export complete.")
-        except Exception as e:
-            logger.error(f"Failed to export parquet: {e}")
+        except Exception:
+            logger.exception("Failed to export parquet")
+            raise
 
     def close(self):
         """Flush remaining buffers, export, and close."""

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, Self, override, runtime_checkable
@@ -7,6 +9,18 @@ if TYPE_CHECKING:
 
     from magical_athlete_simulator.core.state import GameState
     from magical_athlete_simulator.engine.game_engine import GameEngine
+
+
+@dataclass
+class DecisionContext[T]:
+    source: T
+    game_state: GameState
+    source_racer_idx: int
+
+
+@dataclass
+class SelectionDecisionContext[T, R](DecisionContext[T]):
+    options: Sequence[R]
 
 
 @runtime_checkable
@@ -25,18 +39,6 @@ class SelectionInteractive[R](Protocol):
         engine: GameEngine,
         ctx: SelectionDecisionContext[Self, R],
     ) -> R | None: ...
-
-
-@dataclass
-class DecisionContext[T]:
-    source: T
-    game_state: GameState
-    source_racer_idx: int
-
-
-@dataclass
-class SelectionDecisionContext[T, R](DecisionContext[T]):
-    options: Sequence[R]
 
 
 class BooleanDecisionMixin(BooleanInteractive, ABC):

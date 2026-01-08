@@ -8,4 +8,5 @@
     "src"
   ],
   "python.envFile": "${workspaceFolder}/.env",
+  "python-envs.pythonProjects": [],
 }

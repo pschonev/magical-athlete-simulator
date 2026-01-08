@@ -1,5 +1,7 @@
 """Generate racer combinations with perfect coverage."""
 
+from __future__ import annotations
+
 import itertools
 import math
 import random

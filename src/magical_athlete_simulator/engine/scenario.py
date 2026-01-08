@@ -1,5 +1,7 @@
 """Testing utilities for creating reproducible game scenarios."""
 
+from __future__ import annotations
+
 import itertools
 import random
 from dataclasses import dataclass, field

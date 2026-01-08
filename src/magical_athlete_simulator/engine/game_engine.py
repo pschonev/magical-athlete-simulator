@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import heapq
 import logging
 from collections.abc import Callable

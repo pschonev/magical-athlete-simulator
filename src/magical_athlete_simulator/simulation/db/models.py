@@ -1,5 +1,7 @@
 """Database models for simulation results."""
 
+from __future__ import annotations
+
 import datetime
 
 from sqlmodel import Field, SQLModel

@@ -1,4 +1,6 @@
-import random  # noqa: INP001
+from __future__ import annotations  # noqa: INP001
+
+import random
 from typing import TYPE_CHECKING
 
 from magical_athlete_simulator.core.state import (

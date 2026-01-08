@@ -1,5 +1,7 @@
 """Configuration schema for batch simulations using msgspec."""
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import get_args
 
