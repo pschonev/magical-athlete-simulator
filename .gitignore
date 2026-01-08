@@ -212,8 +212,8 @@ __marimo__/
 
 # repo-specific
 rules.md
-*.parquet
 
 .gitignore
 
 results/
+docs/
