@@ -1,15 +1,16 @@
 [project]
 name = "magical-athlete-simulator"
-version = "0.2.2"
+version = "0.3.0"
 description = "A simulator for Magical Athlete"
 authors = [{ name = "Philipp Schoneville", email = "philipp@schoneville.com" }]
 license = "MIT"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = "==3.12.7"
 dependencies = ["rich>=13.7.1"]
 
 [project.urls]
 Repository = "https://github.com/pschonev/magical-athlete-simulator"
+Changelog = "https://github.com/pschonev/magical-athlete-simulator/CHANGELOG.md"
 
 [project.optional-dependencies]
 cli = [
@@ -47,13 +48,14 @@ ignore = [
 # Ruff
 [tool.ruff]
 exclude = ["tests"]
-target-version = "py314"
+target-version = "py312"
 
 # Pyright
 [tool.basedpyright]
 include = ["src", "tests"]
 executionEnvironments = [{ root = "src" }, { root = "tests" }]
 
+pythonVersion = "3.12"
 
 reportImportCycles = "none"
 reportAny = "none"
