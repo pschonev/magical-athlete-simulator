@@ -76,7 +76,7 @@ class SimulationDatabase:
             count = self.raw_conn.execute("SELECT count(*) FROM races").fetchone()[0]
             if count == 0:
                 self._import_existing_parquet()
-        except Exception:
+        except Exception:  # noqa: BLE001
             self._import_existing_parquet()
 
     def _import_existing_parquet(self):
