@@ -1,7 +1,6 @@
 """Command-line interface for batch simulations."""
 
 import logging
-import shutil
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -29,7 +28,7 @@ def delete_existing_results(
     dir_path: Path,
     patterns: Iterable[str] = ("*.parquet", "*.duckdb"),
 ) -> None:
-    """Delete files matching patterns in dir_path (non‑recursive)."""
+    """Delete files matching patterns in dir_path (non-recursive)."""
     if not dir_path.exists():
         return
 

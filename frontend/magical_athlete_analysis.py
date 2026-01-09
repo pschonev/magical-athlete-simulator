@@ -16,7 +16,7 @@ __generated_with = "0.18.4"
 app = marimo.App(
     width="full",
     app_title="Magical Athlete Simulator",
-    css_file="magical_athlete_analysis.css",
+    css_file="docs/magical_athlete_analysis.css",
 )
 
 
