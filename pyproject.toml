@@ -30,7 +30,13 @@ frontend = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=9.0.2", "basedpyright==1.23.0", "marimo[lsp]", "ruff>=0.14.10"]
+dev = [
+    "pytest>=9.0.2",
+    "basedpyright==1.23.0",
+    "marimo[lsp]",
+    "ruff>=0.14.10",
+    "poethepoet>=0.40.0",
+]
 
 [project.scripts]
 magical-sim = "magical_athlete_simulator.cli:main"
@@ -92,16 +98,13 @@ post_bump_hooks = [
 [tool.poe]
 envfile = ".env"
 
-[tool.poe.executor]
-type = "uv"
-run_options = ["--isolated"]
-
 [tool.poe.tasks]
 check = "uvx --from commitizen cz check --rev-range HEAD"
 bump = "uvx --from commitizen cz bump"
 build = "uv build"
 publish = "uv publish"
-release = { sequence = ["check", "bump", "build", "publish"] }
+push = "git push --follow-tags"
+release = { sequence = ["check", "bump", "build", "publish", "push"] }
 
 
 [build-system]
