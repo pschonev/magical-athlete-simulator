@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4 (2026-01-09)
+
+### Fix
+
+- Stop WASM marimo from using newest Polars code
+
 ## 0.5.3 (2026-01-09)
 
 ### Fix

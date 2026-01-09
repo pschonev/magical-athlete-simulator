@@ -43,7 +43,7 @@ async def _():
     from rich.console import Console
     from rich.logging import RichHandler
 
-    await micropip.install("magical-athlete-simulator==0.5.3", keep_going=True)
+    await micropip.install("magical-athlete-simulator==0.5.4", keep_going=True)
 
     from magical_athlete_simulator.core.events import (
         MoveCmdEvent,
