@@ -13,7 +13,11 @@
 import marimo
 
 __generated_with = "0.18.4"
-app = marimo.App(width="full", css_file="magical_athlete_analysis.css")
+app = marimo.App(
+    width="full",
+    app_title="Magical Athlete Simulator",
+    css_file="docs/magical_athlete_analysis.css",
+)
 
 
 @app.cell
@@ -198,16 +202,19 @@ def _(
 
 @app.cell
 def _(df_racer_results, df_races, mo, pl):
+    import json  # Required for the WASM fix
+
     HASH_COL = "config_hash"
 
     # 1. Get unique racers for column headers
     unique_racers = sorted(df_racer_results.get_column("racer_name").unique().to_list())
 
-    # 2. FIX DATA TYPE: Decode JSON -> List
+    # 2. FIX DATA TYPE: Decode JSON -> List (WASM Compatible)
+    # Switched from .str.json_decode() to .map_elements(json.loads) to avoid missing attribute error
     df_races_clean = df_races.with_columns(
         pl.col("racer_names")
         .cast(pl.String)
-        .str.json_decode(pl.List(pl.String))
+        .map_elements(json.loads, return_dtype=pl.List(pl.String))
         .alias("racer_names")
     )
 
@@ -223,7 +230,7 @@ def _(df_racer_results, df_races, mo, pl):
 
     # 4. DEFINE COLUMN GROUPS
 
-    # A. Priority Columns (Frozen on left) - Added your requested columns here
+    # A. Priority Columns (Frozen on left)
     priority_cols = [
         "roster_display",
         "board",

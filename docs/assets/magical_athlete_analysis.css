@@ -1,0 +1,40 @@
+/* DARK BUTTONS */
+
+/* Button Styling */
+button,
+.marimo-btn,
+[role="button"] {
+    /* Very dark grey, almost black */
+    background-color: #222222 !important;
+    
+    /* Text Color */
+    color: #e0e0e0 !important;
+    
+    /* Remove borders/outlines */
+    border: white !important;
+}
+
+/* Hover State - Subtle Lift */
+button:hover,
+.marimo-btn:hover,
+[role="button"]:hover {
+    /* Slightly lighter on hover to show interactivity */
+    background-color: #2d2d2d !important; 
+    color: #ffffff !important;
+}
+
+
+/* 4. Active/Pressed State */
+button:active,
+.marimo-btn:active,
+[role="button"]:active {
+    background-color: #3d3d3d !important; /* Pure black on click */
+}
+
+/* 5. Disabled State */
+button:disabled,
+button[disabled] {
+    background-color: #111111 !important;
+    color: #444444 !important;
+    cursor: not-allowed !important;
+}
