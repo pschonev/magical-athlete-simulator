@@ -53,7 +53,7 @@ def export_docs() -> None:
 
     # Copy CSS BEFORE export so marimo can find it
     shutil.copy2(
-        ROOT / "frontend" / "magical_athlete_analysis.css",
+        ROOT / "frontend" / "docs" / "magical_athlete_analysis.css",
         DOCS_DIR / "magical_athlete_analysis.css",
     )
 
