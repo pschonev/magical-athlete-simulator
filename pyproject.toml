@@ -89,6 +89,11 @@ version_scheme = "pep440"
 version_provider = "uv"
 update_changelog_on_bump = true
 major_version_zero = true
+pre_bump_hooks = ["uv run python scripts/release_prep.py"]
+post_bump_hooks = [
+    "gh release create \"$CZ_POST_CURRENT_TAG_VERSION\" --generate-notes --verify-tag",
+]
+
 
 # Poe
 [tool.poe]
