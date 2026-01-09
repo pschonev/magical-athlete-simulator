@@ -210,7 +210,6 @@ def _(df_racer_results, df_races, mo, pl):
     unique_racers = sorted(df_racer_results.get_column("racer_name").unique().to_list())
 
     # 2. FIX DATA TYPE: Decode JSON -> List (WASM Compatible)
-    # Switched from .str.json_decode() to .map_elements(json.loads) to avoid missing attribute error
     df_races_clean = df_races.with_columns(
         pl.col("racer_names")
         .cast(pl.String)
