@@ -244,21 +244,20 @@ class VictoryPointTile(SpaceModifier, LandingHookMixin):
         )
 
 
-def build_action_lane_board() -> Board:
-    """Build example board using all three static tile types.
-
-    - Tile 3: Move forward 2.
-    - Tile 6: Move back 2.
-    - Tile 9: Trip.
-    - Tile 12: +1 VP.
-    """
+def build_wild_wilds() -> Board:
     return Board(
         length=30,
         static_features={
-            3: [MoveDeltaTile(None, delta=2)],
-            6: [MoveDeltaTile(None, delta=-2)],
-            9: [TripTile(None)],
-            12: [VictoryPointTile(None, amount=1)],
+            1: [VictoryPointTile(None, amount=1)],
+            5: [TripTile(None)],
+            7: [MoveDeltaTile(None, delta=3)],
+            11: [MoveDeltaTile(None, delta=1)],
+            13: [VictoryPointTile(None, amount=1)],
+            16: [MoveDeltaTile(None, delta=-4)],
+            17: [TripTile(None)],
+            23: [MoveDeltaTile(None, delta=2)],
+            24: [MoveDeltaTile(None, delta=-2)],
+            26: [TripTile(None)],
         },
     )
 
@@ -270,5 +269,5 @@ BOARD_DEFINITIONS: dict[BoardName, BoardFactory] = {
         length=30,
         static_features={},
     ),
-    "wild_wilds": build_action_lane_board,
+    "wild_wilds": build_wild_wilds,
 }
