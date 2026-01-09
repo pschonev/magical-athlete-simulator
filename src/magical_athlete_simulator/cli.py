@@ -167,7 +167,7 @@ class Args:
                                 config_encoded=game_config.encoded,
                                 seed=game_config.seed,
                                 board=game_config.board,
-                                racer_names=",".join(game_config.racers),
+                                racer_names=list(game_config.racers),
                                 racer_count=len(game_config.racers),
                                 timestamp=result.timestamp,
                                 execution_time_ms=result.execution_time_ms,

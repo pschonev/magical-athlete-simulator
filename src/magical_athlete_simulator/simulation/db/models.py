@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import datetime
 
-from sqlmodel import Field, SQLModel, String
+from sqlmodel import JSON, Column, Field, SQLModel, String
 
-from magical_athlete_simulator.core.types import ErrorCode
+# we can't put this into type checking block because SQLModel needs to use it
+from magical_athlete_simulator.core.types import ErrorCode  # noqa: TC001
 
 
 class Race(SQLModel, table=True):
@@ -24,7 +25,7 @@ class Race(SQLModel, table=True):
     # Configuration Details
     seed: int
     board: str
-    racer_names: str
+    racer_names: list[str] = Field(sa_column=Column(JSON))
     racer_count: int
 
     # Execution Metadata
