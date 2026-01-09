@@ -1,6 +1,6 @@
 [project]
 name = "magical-athlete-simulator"
-version = "0.4.0"
+version = "0.5.0"
 description = "A simulator for Magical Athlete"
 authors = [{ name = "Philipp Schoneville", email = "philipp@schoneville.com" }]
 license = "MIT"
@@ -36,6 +36,7 @@ dev = [
     "marimo[lsp]",
     "ruff>=0.14.10",
     "poethepoet>=0.40.0",
+    "commitizen>=4.11.0",
 ]
 
 [project.scripts]
@@ -83,29 +84,23 @@ testpaths = ["tests"]
 # Commitizen
 [tool.commitizen]
 name = "cz_conventional_commits"
-tag_format = "v$version"
+tag_format = "$version"
 version_scheme = "pep440"
+version_provider = "uv"
 update_changelog_on_bump = true
-version_files = ["pyproject.toml:version"]
-changelog_file = "CHANGELOG.md"
-pre_bump_hooks = ["uv run python scripts/release_prep.py"]
-post_bump_hooks = [
-    "uvx --from gh gh release create \"$CZ_POST_CURRENT_TAG_VERSION\" --generate-notes --verify-tag",
-]
-
+major_version_zero = true
 
 # Poe
 [tool.poe]
 envfile = ".env"
 
 [tool.poe.tasks]
-check = "uvx --from commitizen cz check --rev-range HEAD"
-bump = "uvx --from commitizen cz bump"
+check = "cz check --rev-range HEAD"
+bump = "cz bump"
 build = "uv build"
 publish = "uv publish"
 push = "git push --follow-tags"
 release = { sequence = ["check", "bump", "build", "publish", "push"] }
-
 
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10.0"]
