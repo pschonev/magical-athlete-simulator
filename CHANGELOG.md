@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2 (2026-01-09)
+
+### Fix
+
+- Fix release script
+
 ## 0.5.1 (2026-01-09)
 
 ### Fix

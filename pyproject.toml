@@ -1,6 +1,6 @@
 [project]
 name = "magical-athlete-simulator"
-version = "0.5.1"
+version = "0.5.2"
 description = "A simulator for Magical Athlete"
 authors = [{ name = "Philipp Schoneville", email = "philipp@schoneville.com" }]
 license = "MIT"
