@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import heapq
 import logging
-from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -34,6 +33,7 @@ from magical_athlete_simulator.core.mixins import (
 )
 from magical_athlete_simulator.core.registry import RACER_ABILITIES
 from magical_athlete_simulator.engine.logging import ContextFilter
+from magical_athlete_simulator.engine.loop_detection import LoopDetector
 from magical_athlete_simulator.engine.movement import (
     handle_move_cmd,
     handle_simultaneous_move_cmd,
@@ -70,23 +70,6 @@ class Subscriber:
     owner_idx: int
 
 
-@dataclass(frozen=True)
-class HeuristicKey:
-    """Unique key for tracking loop states without relying on queue recursion."""
-
-    board_hash: int
-    event_type: type[GameEvent]
-    target_idx: int | None
-    responsible_idx: int | None
-    phase: Phase
-
-
-@dataclass
-class LoopTrackingData:
-    min_queue_len: int
-    visit_count: int
-
-
 @dataclass
 class GameEngine:
     state: GameState
@@ -96,16 +79,9 @@ class GameEngine:
     subscribers: dict[type[GameEvent], list[Subscriber]] = field(default_factory=dict)
     agents: dict[int, Agent] = field(default_factory=dict)
 
+    # errors and loop detection
     bug_reason: ErrorCode | None = None
-
-    # LOOP DETECTION
-    # 1. Heuristic History: Tracks (Board+Event) -> Min Queue Size
-    heuristic_history: dict[HeuristicKey, LoopTrackingData] = field(
-        default_factory=dict,
-    )
-    # 2. Creation Hashes: Maps Event.Serial -> BoardHash at creation time.
-    #    Used to detect "Lagging" events that shouldn't trigger loop detection.
-    event_creation_hashes: dict[int, int] = field(default_factory=dict)
+    loop_detector: LoopDetector = field(default_factory=LoopDetector)
 
     # Callback for external observers
     on_event_processed: Callable[[GameEngine, GameEvent], None] | None = None
@@ -135,13 +111,8 @@ class GameEngine:
             self._advance_turn()
 
     def run_turn(self):
-        # Clear loop detection history at the start of every turn
+        self.loop_detector.reset_for_turn()
         self.state.history.clear()
-        self.heuristic_history.clear()
-        self.event_creation_hashes.clear()
-
-        # Track how many times we visit each board state
-        board_visit_counts = Counter[int]()
 
         cr = self.state.current_racer_idx
         racer = self.state.racers[cr]
@@ -186,51 +157,33 @@ class GameEngine:
             )
 
         while self.state.queue and not self.state.race_over:
-            # --- NEW: Hard Limit on Board State Visits ---
-            # Calculate hash BEFORE processing (same as heuristic)
             current_board_hash = self._calculate_board_hash()
-            board_visit_counts[current_board_hash] += 1
+            current_system_hash = self.state.get_state_hash()
 
-            # If we have visited this EXACT board configuration more than X times,
-            # we are likely in a loop (e.g. Move Fwd -> Move Back -> Move Fwd).
-            if board_visit_counts[current_board_hash] > HARD_LIMIT_BOARD_STATE:
-                self.log_error(
-                    f"CRITICAL_LOOP_DETECTED: Board state visited {board_visit_counts[current_board_hash]} times. Aborting turn to prevent hang.",
-                )
-                self.state.queue.clear()  # Nuclear option: Stop everything
-                self.bug_reason = "CRITICAL_LOOP_DETECTED"
-                break
-
-            # --- LAYER 1: Exact State Detection ---
-            # Catches standard cycles (Scenario 2: Unproductive loops)
-            current_hash = self.state.get_state_hash()
-
-            if current_hash in self.state.history:
-                # This is a strict cycle (Board + Queue are identical)
-                skipped_sched = heapq.heappop(self.state.queue)
-                # Cleanup auxiliary map
-                self.event_creation_hashes.pop(skipped_sched.serial, None)
-
+            # --- Layer 1: Exact State Cycle (Least Harmful) ---
+            # Checks if the entire system (Board + Queue) is in a recursive loop.
+            if self.loop_detector.check_exact_cycle(current_system_hash):
+                skipped = heapq.heappop(self.state.queue)
+                self.loop_detector.forget_event(skipped.serial)
                 self.log_warning(
-                    f"Infinite loop detected (Exact State Cycle). Dropping recursive event: {skipped_sched.event}",
+                    f"Infinite loop detected (Exact State Cycle). Dropping recursive event: {skipped.event}",
                 )
                 continue
 
-            self.state.history.add(current_hash)
-
-            # Peek the next event
+            # Pop the next event to analyze it against Heuristics
             sched = heapq.heappop(self.state.queue)
 
-            # Retrieve creation context
-            creation_hash = self.event_creation_hashes.pop(sched.serial, None)
-
-            # --- LAYER 2: Heuristic Detection (High-Water Mark) ---
-            # Catches Exploding Queues
-            # Checks if we are repeating work on the SAME board state.
-            if self._check_heuristic_loop(sched, creation_hash):
+            # --- Layer 2: Heuristic Detection (Surgical Fix) ---
+            # Checks for logical loops (e.g. oscillating moves) where queue grows/stagnates.
+            if self.loop_detector.check_heuristic_loop(
+                current_board_hash,
+                len(self.state.queue),
+                sched,
+            ):
                 self.log_warning(
                     f"MINOR_LOOP_DETECTED (Heuristic/Exploding). Dropping: {sched.event}",
                 )
+                # Ensure we don't downgrade a critical error
                 self.bug_reason = (
                     "MINOR_LOOP_DETECTED"
                     if self.bug_reason != "CRITICAL_LOOP_DETECTED"
@@ -238,7 +191,16 @@ class GameEngine:
                 )
                 continue
 
-            # 3. Proceed
+            # --- Layer 3: Global Sanity Check (Nuclear Option) ---
+            # Failsafe: If the board keeps resetting despite the checks above, abort the turn.
+            if self.loop_detector.check_global_sanity(current_board_hash):
+                self.log_error(
+                    "CRITICAL_LOOP_DETECTED: Board state oscillation limit exceeded. Aborting turn.",
+                )
+                self.state.queue.clear()
+                self.bug_reason = "CRITICAL_LOOP_DETECTED"
+                break
+
             self.current_processing_event = sched
             self._handle_event(sched.event)
 
@@ -377,10 +339,11 @@ class GameEngine:
             mode=self.state.rules.timing_mode,
         )
 
-        # RECORD CREATION CONTEXT
-        # We assume the current board state is the 'parent' of this event.
-        # This helps us differentiate "lagging" events from "current loop" events later.
-        self.event_creation_hashes[sched.serial] = self._calculate_board_hash()
+        # Notify loop detector of the board state at creation time
+        self.loop_detector.record_event_creation(
+            sched.serial,
+            self._calculate_board_hash(),
+        )
 
         msg = f"{sched}"
         self.log_debug(msg)
