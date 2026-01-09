@@ -1,7 +1,9 @@
 """Command-line interface for batch simulations."""
 
 import logging
+import shutil
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +22,24 @@ from magical_athlete_simulator.simulation.runner import run_single_simulation
 logging.getLogger("magical_athlete").setLevel(logging.CRITICAL)
 
 BATCH_SIZE = 1000
+RESULTS_DIR = Path("results")
+
+
+def delete_existing_results(
+    dir_path: Path,
+    patterns: Iterable[str] = ("*.parquet", "*.duckdb"),
+) -> None:
+    """Delete files matching patterns in dir_path (non‑recursive)."""
+    if not dir_path.exists():
+        return
+
+    deleted = 0
+    for pattern in patterns:
+        for file in dir_path.glob(pattern):
+            if file.is_file():
+                file.unlink()
+                deleted += 1
+    tqdm.write(f"🧹 Deleted {deleted} files from {dir_path}")
 
 
 @dataclass
@@ -36,6 +56,24 @@ class Args:
         if not self.config.exists():
             tqdm.write(f"Error: Config file not found: {self.config}", file=sys.stderr)
             return 1
+
+        # Ask whether to wipe existing result files first
+        if RESULTS_DIR.exists():
+            while True:
+                answer = (
+                    input(
+                        f"Delete all .parquet and .duckdb files in '{RESULTS_DIR}' before running? (y/n): ",
+                    )
+                    .strip()
+                    .lower()
+                )
+                if answer in {"y", "yes"}:
+                    delete_existing_results(RESULTS_DIR)
+                    break
+                if answer in {"n", "no", ""}:
+                    tqdm.write("Keeping existing result files.")
+                    break
+                tqdm.write("Please answer with 'y' or 'n'.")
 
         config = SimulationConfig.from_toml(str(self.config))
 
@@ -67,7 +105,7 @@ class Args:
             seed_offset=self.seed_offset,
         )
 
-        db = SimulationDatabase(Path("results"))
+        db = SimulationDatabase(RESULTS_DIR)
         seen_hashes = db.get_known_hashes()
         initial_seen_count = len(seen_hashes)
 
