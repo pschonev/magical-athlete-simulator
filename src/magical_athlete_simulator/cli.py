@@ -47,7 +47,7 @@ class Args:
 
     config: Path
     runs_per_combination: int | None = None
-    max_total_runs: int | None = None
+    max_total_runs: int | None = 100_000
     max_turns: int = 500
     seed_offset: int = 0
 
