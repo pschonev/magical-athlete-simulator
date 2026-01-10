@@ -401,17 +401,13 @@ def _(
 
         # --- VISUALIZATION CONSTANTS ---
         # Geometry
-        MAIN_RADIUS = 9.0  # The radius of the main racer circle
-        SECONDARY_RADIUS = (
-            8.0  # The radius of the inner ring (set closer to 9.0 for a border look)
-        )
+        MAIN_RADIUS = 9.0
+        SECONDARY_RADIUS = 8.0
 
         # Stroke Widths
-        OUTLINE_WIDTH = 1.5  # Thickness of the black outline around the main circle
-        SECONDARY_WIDTH = 1.5  # Thickness of the inner ring stroke
-        TEXT_STROKE_WIDTH = (
-            "4px"  # Thickness of the stroke around racer names for readability
-        )
+        OUTLINE_WIDTH = 1.5
+        SECONDARY_WIDTH = 1.5
+        TEXT_STROKE_WIDTH = "4px"
 
         if not turn_data:
             return "<p>No Data</p>"
@@ -430,8 +426,23 @@ def _(
             f'<g transform="translate({trans_x}, {trans_y}) scale({scale_factor})">'
         )
 
+        # --- [NEW] Calculate Vertical Pivot for Mirroring ---
+        # We scan the map to find the vertical center.
+        # We will reflect all Y coordinates across this line to flip Bottom <-> Top.
+        pivot_y = 0
+        if positions_map:
+            all_ys = [p[1] for p in positions_map]
+            if all_ys:
+                pivot_y = (min(all_ys) + max(all_ys)) / 2
+        # ----------------------------------------------------
+
         # 2. Track Spaces
         for i, (cx, cy, rot) in enumerate(positions_map):
+            # --- [NEW] Apply Vertical Flip to Tile ---
+            cy = 2 * pivot_y - cy  # Mirror Y
+            rot = -rot  # Invert Rotation angle for correct orientation
+            # -----------------------------------------
+
             transform = f"rotate({rot}, {cx}, {cy})"
 
             # --- 1. DEFAULT STYLES (Dark Mode) ---
@@ -449,7 +460,7 @@ def _(
 
             # Default Text
             text_content = str(i)
-            text_fill = "#aaa"  # Lighter text for dark background
+            text_fill = "#aaa"
             font_weight = "bold"
             font_size = "10"
 
@@ -510,8 +521,6 @@ def _(
         for idx, pos in enumerate(turn_data.positions):
             draw_pos = min(pos, len(positions_map) - 1)
             name = turn_data.names[idx]
-
-            # Retrieve palette for visualization
             palette = get_racer_palette(name)
 
             mods = turn_data.modifiers
@@ -533,9 +542,14 @@ def _(
         # Render Racers
         for space_idx, racers_here in occupancy.items():
             bx, by, brot = positions_map[space_idx]
+
+            # --- [NEW] Apply Vertical Flip to Racer Position ---
+            by = 2 * pivot_y - by
+            brot = -brot
+            # ---------------------------------------------------
+
             count = len(racers_here)
 
-            # Offset logic (Tile Relative)
             if count == 1:
                 offsets = [(0, 0)]
             elif count == 2:
@@ -550,16 +564,14 @@ def _(
                     break
                 ox, oy = offsets[i]
 
-                # Calculate Screen Position
                 rad = math.radians(brot)
                 cx = bx + (ox * math.cos(rad) - oy * math.sin(rad))
                 cy = by + (ox * math.sin(rad) + oy * math.cos(rad))
 
-                # --- LABEL LOGIC ---
                 vis_dx = cx - bx
                 vis_dy = cy - by
                 text_anchor = "middle"
-                dy_text = 24  # Default below
+                dy_text = 24
                 tx = cx
                 ty = cy
 
@@ -578,25 +590,21 @@ def _(
                             text_anchor = "start"
                             tx = cx + 14
 
-                # Get Palette
                 pal = racer["palette"]
                 stroke = pal.outline
 
                 svg_elements.append(f"<g>")
                 svg_elements.append(f"<title>{_html.escape(racer['tooltip'])}</title>")
 
-                # 1. Main Circle (Primary Fill)
                 svg_elements.append(
                     f'<circle cx="{cx}" cy="{cy}" r="{MAIN_RADIUS}" fill="{pal.primary}" stroke="{stroke}" stroke-width="{OUTLINE_WIDTH}" />'
                 )
 
-                # 2. Secondary Ring (Optional)
                 if pal.secondary:
                     svg_elements.append(
                         f'<circle cx="{cx}" cy="{cy}" r="{SECONDARY_RADIUS}" fill="none" stroke="{pal.secondary}" stroke-width="{SECONDARY_WIDTH}" />'
                     )
 
-                # 3. Label (Primary color fill, stroke for readability)
                 svg_elements.append(
                     f'<text x="{tx}" y="{ty}" dy="{dy_text}" font-family="sans-serif" font-size="13" '
                     f'font-weight="900" text-anchor="{text_anchor}" fill="{pal.primary}" '
@@ -604,7 +612,6 @@ def _(
                     f"{_html.escape(racer['name'])}</text>"
                 )
 
-                # 4. Tripped Marker
                 if racer["tripped"]:
                     svg_elements.append(
                         f'<text x="{cx}" y="{cy}" dy="5" fill="#ff0000" font-weight="bold" font-size="14" text-anchor="middle">X</text>'
@@ -613,7 +620,7 @@ def _(
 
         svg_elements.append("</g>")
 
-        # 4. Center Display (Active Racer & Dice)
+        # 4. Center Display
         center_x = (100 + 500) / 2 * scale_factor + trans_x
         center_y = (350 - 100) * scale_factor + trans_y
 
@@ -622,33 +629,22 @@ def _(
         active_pal = get_racer_palette(active_name)
         roll = turn_data.last_roll
 
-        # Background Box
         svg_elements.append(
             f'<rect x="{center_x - 70}" y="{center_y - 50}" width="140" height="100" rx="10" fill="#222" stroke="#444" stroke-width="2" />'
         )
 
-        # Active Racer Name
         svg_elements.append(
             f'<text x="{center_x}" y="{center_y - 15}" font-size="20" font-weight="bold" text-anchor="middle" fill="{active_pal.primary}" style="paint-order: stroke; stroke: {active_pal.outline}; stroke-width: 1px;">{_html.escape(active_name)}</text>'
         )
 
-        # --- [CHANGE START] ---
-        # Dice Roll OR Red X
         if roll:
-            # 1. Standard Dice Display (Active Roll)
             svg_elements.append(
                 f'<text x="{center_x}" y="{center_y + 35}" font-size="40" font-weight="bold" text-anchor="middle" fill="#eee" >🎲 {roll}</text>'
             )
         elif turn_data.turn_index > 0:
-            # 2. Recovery/Skipped Turn (Roll 0)
-            # We explicitly check turn_index > 0 so we don't draw an X on the "Initial State".
             svg_elements.append(
                 f'<text x="{center_x}" y="{center_y + 35}" font-size="60" font-weight="bold" text-anchor="middle" fill="#ff0000" >X</text>'
             )
-
-        # 3. Implicit Else (Turn == 0 and Roll == 0):
-        # Draw nothing. This leaves the center empty for the setup phase.
-        # --- [CHANGE END] ---
 
         return f"""<svg width="{W}" height="{H}" style="background:#1e1e1e; border:2px solid #333; border-radius:8px;">
             {track_group_start}
