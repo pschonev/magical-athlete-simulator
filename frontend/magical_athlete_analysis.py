@@ -70,6 +70,7 @@ async def _():
 
     # Imports
     from magical_athlete_simulator.engine.scenario import GameScenario, RacerConfig
+
     return (
         Any,
         BOARD_DEFINITIONS,
@@ -281,7 +282,7 @@ def _(df_racer_results, df_races, mo, pl):
         label="Races (Matrix View)",
         freeze_columns_left=priority_cols,
     )
-    return racer_results_table, races_table
+    return df_races_clean, racer_results_table, races_table
 
 
 @app.cell
@@ -650,6 +651,7 @@ def _(
             {track_group_start}
             {"".join(svg_elements)}
         </svg>"""
+
     return (render_game_track,)
 
 
@@ -992,7 +994,7 @@ def _(
 
 @app.cell
 def _(
-    df_races,
+    df_races_clean,
     get_last_race_hash,
     get_last_result_hash,
     pl,
@@ -1036,19 +1038,18 @@ def _(
     if race_changed:
         target_config = curr_race_row
     elif res_changed:
-        # We need to fetch the row from df_races
-        filtered = df_races.filter(pl.col("config_hash") == curr_res_hash)
+        # Use the CLEANED races frame so racer_names is already a list
+        filtered = df_races_clean.filter(pl.col("config_hash") == curr_res_hash)
         if filtered.height > 0:
             target_config = filtered.row(0, named=True)
 
     # 4. Apply Configuration (if any change detected)
     if target_config:
         raw_names = target_config.get("racer_names")
-        # Handle both the new List format and legacy String format
+
+        # Now always expect a list from both paths
         if isinstance(raw_names, list):
             new_roster = [str(n) for n in raw_names]
-        elif isinstance(raw_names, str):
-            new_roster = [n.strip() for n in raw_names.split(",") if n.strip()]
         else:
             new_roster = []
 
