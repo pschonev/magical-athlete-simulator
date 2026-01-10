@@ -1585,7 +1585,7 @@ def _(
         label="Board(s)",
     )
 
-    matchup_metric_toggle = mo.ui.switch(value=False, label="Show Percentage Shift")
+    matchup_metric_toggle = mo.ui.switch(value=True, label="Show Percentage Shift")
 
     # 4. Define "Run Analysis" Button with Callback
     def _submit_filters(_):
@@ -1643,7 +1643,7 @@ def _(
         <hr style="margin: 1.25rem 0;" />
         <h2 style="margin: 0 0 0.5rem 0;">Aggregated Dashboard</h2>
         <div style="color: #aaa; margin-bottom: 0.75rem;">
-          Filter races by roster, board, and player count (applies to all aggregated charts/tables below). ⚠️ Does not include races with error_code.
+          Filter races by roster, board, and player count (applies to all aggregated charts/tables below). ⚠️ Does not include races with error_code or Copycat+Scoocher on Standard Board (due to loops).
         </div>
         """
     )
@@ -2171,7 +2171,16 @@ def _(
             color=alt.Color(
                 f"{metric_col}:Q",
                 title=metric_title,
-                scale=alt.Scale(scheme="redblue", domainMid=0),
+                scale=alt.Scale(
+                    range=[
+                        "#FF007C",
+                        "#FF66A3",
+                        "#9E9E9E",
+                        "#9E9E9E",
+                        "#00B8FF",
+                        "#0055FF",
+                    ],
+                ),
                 legend=alt.Legend(format=legend_format),
             ),
             tooltip=[
@@ -2573,7 +2582,16 @@ def _(
             color=alt.Color(
                 f"{env_metric_col}:Q",
                 title=env_metric_title,
-                scale=alt.Scale(scheme="redblue", domainMid=0),
+                scale=alt.Scale(
+                    range=[
+                        "#FF007C",
+                        "#FF66A3",
+                        "#9E9E9E",
+                        "#9E9E9E",
+                        "#00B8FF",
+                        "#0055FF",
+                    ],
+                ),
                 legend=alt.Legend(format=env_legend_fmt),
             ),
             tooltip=[
