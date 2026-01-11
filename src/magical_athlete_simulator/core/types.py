@@ -22,7 +22,9 @@ RacerName = Literal[
     "Dicemonger",
     "Suckerfish",
     "Duelist",
+    "Leaptoad",
     "Mastermind",
+    "Stickler",
 ]
 
 AbilityName = Literal[
@@ -43,7 +45,9 @@ AbilityName = Literal[
     "LegsMove5",
     "HareSpeed",
     "LackeyInterference",
+    "LeaptoadJumpManager",
     "DicemongerProfit",
+    "SticklerStrictFinishManager",
     "SuckerfishRide",
     "DuelistChallenge",
     "MastermindPredict",
@@ -52,11 +56,13 @@ AbilityName = Literal[
 ModifierName = Literal[
     "GunkSlimeModifier",
     "HugeBabyBlocker",
+    "LeaptoadJump",
+    "MastermindPrediction",
     "MoveDeltaTile",
     "PartySelfBoost",
+    "SticklerStrictFinish",
     "TripTile",
     "VictoryPointTile",
-    "MastermindPrediction",
 ]
 
 BoardName = Literal["standard", "wild_wilds"]
@@ -64,4 +70,8 @@ BoardName = Literal["standard", "wild_wilds"]
 SystemSource = Literal["Board", "System"]
 Source = AbilityName | ModifierName | SystemSource
 
-ErrorCode = Literal["CRITICAL_LOOP_DETECTED", "MINOR_LOOP_DETECTED", "MAX_TURNS_REACHED"]
+ErrorCode = Literal[
+    "CRITICAL_LOOP_DETECTED",
+    "MINOR_LOOP_DETECTED",
+    "MAX_TURNS_REACHED",
+]

@@ -17,6 +17,10 @@ from magical_athlete_simulator.core.events import (
     TripCmdEvent,
     WarpCmdEvent,
 )
+from magical_athlete_simulator.core.mixins import (
+    DestinationCalculatorMixin,
+    MovementValidatorMixin,
+)
 from magical_athlete_simulator.engine.flow import check_finish
 
 if TYPE_CHECKING:
@@ -42,23 +46,43 @@ def _publish_pre_move(engine: GameEngine, evt: MoveCmdEvent):
 def _resolve_move_path(engine: GameEngine, evt: MoveCmdEvent) -> int:
     racer = engine.get_racer(evt.target_racer_idx)
     start = racer.position
-    intended = start + evt.distance
 
+    # --- 1. CALCULATE PHYSICS DESTINATION (Leaptoad) ---
+    phys_end = start + evt.distance
+
+    for mod in racer.modifiers:
+        if isinstance(mod, DestinationCalculatorMixin):
+            phys_end = mod.calculate_destination(engine, racer.idx, start, evt.distance)
+            break
+
+    # --- 2. VALIDATE MOVE (Stickler) ---
+    for mod in racer.modifiers:
+        if isinstance(mod, MovementValidatorMixin) and not mod.validate_move(
+            engine, racer.idx, start, phys_end
+        ):
+            engine.log_info(f"Move vetoed by {mod.name}")
+            return start  # Cancel move
+
+    # --- 3. RESOLVE BOARD INTERACTIONS (Huge Baby) ---
     # Pass the event object itself to the board logic
-    end = engine.state.board.resolve_position(
-        intended,
+    # Note: If phys_end == start (e.g. dist=0 or vetoed), resolve_position might still trigger
+    # things if Huge Baby is ON start... but normally it handles "approach".
+
+    final_end = engine.state.board.resolve_position(
+        phys_end,
         evt.target_racer_idx,
         engine,
         event=evt,
     )
 
-    if end < 0:
+    # --- 4. SAFETY CLAMP ---
+    if final_end < 0:
         engine.log_info(
-            f"Attempted to move {racer.repr} to {end}. Instead moving to starting tile (0).",
+            f"Attempted to move {racer.repr} to {final_end}. Instead moving to starting tile (0).",
         )
-        end = 0
+        final_end = 0
 
-    return end
+    return final_end
 
 
 def _process_passing_and_logs(
@@ -129,15 +153,14 @@ def _finalize_committed_move(
 
 def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
     racer = engine.get_racer(evt.target_racer_idx)
-    if not racer.active:
-        return
-    if evt.distance == 0:
+    if not racer.active or evt.distance == 0:
         return
 
     start = racer.position
 
     _publish_pre_move(engine, evt)
 
+    # All complex logic is now inside here
     end = _resolve_move_path(engine, evt)
 
     if end == start:
@@ -153,7 +176,6 @@ def handle_move_cmd(engine: GameEngine, evt: MoveCmdEvent):
     _process_passing_and_logs(engine, evt, start, end)
 
     racer.position = end
-
     _finalize_committed_move(engine, evt, start, end)
 
 
@@ -167,19 +189,20 @@ def handle_simultaneous_move_cmd(engine: GameEngine, evt: SimultaneousMoveCmdEve
         if not racer.active:
             continue
 
-        # Create a transient event for this sub-move
+        # Create transient event FIRST
         sub_evt = MoveCmdEvent(
             target_racer_idx=racer_idx,
             distance=distance,
             source=evt.source,
             phase=evt.phase,
-            emit_ability_triggered="never",  # Batch handles the main trigger
+            emit_ability_triggered="never",
             responsible_racer_idx=evt.responsible_racer_idx,
         )
 
         start = racer.position
-
         _publish_pre_move(engine, sub_evt)
+
+        # Now use the shared logic!
         end = _resolve_move_path(engine, sub_evt)
 
         if end == start:

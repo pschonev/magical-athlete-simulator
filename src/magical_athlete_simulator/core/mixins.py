@@ -73,3 +73,23 @@ class LifecycleManagedMixin(ABC):
     @abstractmethod
     def on_loss(engine: GameEngine, owner_idx: int) -> None:
         pass
+
+
+class DestinationCalculatorMixin(ABC):
+    """Allows a modifier to override the standard 'start + distance' math."""
+
+    @abstractmethod
+    def calculate_destination(
+        self, engine: GameEngine, racer_idx: int, start_tile: int, distance: int
+    ) -> int:
+        pass
+
+
+class MovementValidatorMixin(ABC):
+    """Allows a modifier to veto a move based on its projected destination."""
+
+    @abstractmethod
+    def validate_move(
+        self, engine: GameEngine, racer_idx: int, start_tile: int, end_tile: int
+    ) -> bool:
+        pass

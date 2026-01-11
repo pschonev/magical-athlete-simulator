@@ -26,4 +26,6 @@ RACER_ABILITIES: dict[RacerName, set[AbilityName]] = {
     "Suckerfish": {"SuckerfishRide"},
     "Duelist": {"DuelistChallenge"},
     "Mastermind": {"MastermindPredict"},
+    "Leaptoad": {"LeaptoadJumpManager"},
+    "Stickler": {"SticklerStrictFinishManager"},
 }
