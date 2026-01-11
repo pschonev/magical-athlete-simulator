@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.1 (2026-01-11)
+
+### Fix
+
+- **frontend**: Fix turn button not moving to end of turn
+- Fix Huge Baby and Copycat problems
+
+### Refactor
+
+- **frontend**: Adjust some visuals
+- Change racer colors
+- Trying to fix Huge Baby and Copycat
+- **frontend**: Calculate flipped board from the beginning
+
 ## 0.7.0 (2026-01-11)
 
 ### Feat
