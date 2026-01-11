@@ -100,27 +100,26 @@ clean = "rm -rf dist"
 bump-files = "cz bump --yes --files-only"
 release-prep = "python scripts/release_prep.py"
 
-# Stage files
 git-add = "git add pyproject.toml uv.lock CHANGELOG.md docs/ frontend/magical_athlete_analysis.py"
-
-# Run the new Python script for commit/tag
 git-finalize = "python scripts/release_git.py"
 
 release-build = "uv build"
 release-publish = "uv publish"
+
+release-push = "git push"
 release-push-tags = "git push --tags"
 
-# GitHub Release (using gh CLI)
-release-github = { shell = 'ver=$(cz version --project) && cz changelog --incremental --unreleased-version "$ver" --dry-run > release_notes.md && gh release create "$ver" --notes-file release_notes.md' }
+release-github = { shell = 'ver=$(cz version --project) && cz changelog "$ver" --dry-run > release_notes.md && gh release create "$ver" --notes-file release_notes.md' }
 
 release = { sequence = [
     "clean",
     "bump-files",
     "release-prep",
     "git-add",
-    "git-finalize",      # Replaces the fragile git-commit/git-tag shell tasks
+    "git-finalize",
     "release-build",
     "release-publish",
+    "release-push",
     "release-push-tags",
     "release-github",
 ] }
