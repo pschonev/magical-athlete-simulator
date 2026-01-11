@@ -97,8 +97,9 @@ envfile = ".env"
 
 [tool.poe.tasks]
 # Atomic steps
+bump = "cz bump"
 release-prep = "python scripts/release_prep.py"
-release-commit = "git add pyproject.toml uv.lock CHANGELOG.md docs/ frontend/magical_athlete_analysis.py && git commit -m 'chore(release): prepare v$(python -c \"import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])\" )'"
+release-commit = { shell = "git add pyproject.toml uv.lock CHANGELOG.md docs/ frontend/magical_athlete_analysis.py && git commit -m 'chore(release): prepare v$(python -c \"import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])\" )'" }
 release-build = "uv build"
 release-publish = "uv publish"
 release-tags = "git push --tags"
@@ -106,7 +107,6 @@ release-github = "sh -c 'cz changelog --incremental --unreleased-version \"$(cz 
 
 # Single command release
 release = { sequence = [
-    "bump",
     "release-prep",
     "release-commit",
     "release-build",
@@ -116,11 +116,7 @@ release = { sequence = [
 ] }
 
 # Safety: Test without publishing
-release-dry = { sequence = [
-    "bump",
-    "release-prep",
-    "release-commit",
-], shell = true }
+release-dry = { sequence = ["bump", "release-prep", "release-commit"] }
 
 
 [build-system]
