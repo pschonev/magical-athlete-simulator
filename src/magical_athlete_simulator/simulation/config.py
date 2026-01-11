@@ -10,6 +10,21 @@ import msgspec
 from magical_athlete_simulator.core.types import BoardName, RacerName
 
 
+class CombinationFilter(msgspec.Struct):
+    """
+    Exclusion rule.
+    If a generated game matches specific racers AND specific boards, it is skipped.
+    """
+
+    # The game must contain ALL of these racers to match this filter.
+    # Empty set = Matches any racer combination.
+    racers: set[RacerName] = msgspec.field(default_factory=set)
+
+    # The game must be on ONE of these boards to match this filter.
+    # Empty set = Matches any board.
+    boards: set[BoardName] = msgspec.field(default_factory=set)
+
+
 class SimulationConfig(msgspec.Struct):
     """
     TOML-backed configuration for batch race simulations.
@@ -25,6 +40,8 @@ class SimulationConfig(msgspec.Struct):
     # Use a lambda to return your specific default lists
     racer_counts: list[int] = msgspec.field(default_factory=lambda: [2, 3, 4, 5])
     boards: list[BoardName] = msgspec.field(default_factory=lambda: ["standard"])
+
+    filters: list[CombinationFilter] = msgspec.field(default_factory=list)
 
     # Execution limits
     runs_per_combination: int | None = None

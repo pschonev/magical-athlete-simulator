@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from magical_athlete_simulator.simulation.hashing import GameConfiguration
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
     from magical_athlete_simulator.core.types import BoardName, RacerName
+    from magical_athlete_simulator.simulation.config import CombinationFilter
 
 
 def compute_total_runs(
@@ -79,12 +80,12 @@ def get_combination_at_index(n: int, k: int, index: int) -> list[int]:
         A list of 'k' integers representing the indices of the selected items.
         (e.g., [0, 5, 12] means 1st, 6th, and 13th racer in the list).
     """
-    result = []
+    result: list[int] = []
     a = n
     b = k
     x = (math.comb(n, k) - 1) - index  # Dual index mapping for easier math
 
-    for i in range(k):
+    for _ in range(k):
         a -= 1
         while True:
             c = math.comb(a, b)
@@ -116,6 +117,7 @@ def generate_combinations(
     boards: list[BoardName],
     runs_per_combination: int | None,
     max_total_runs: int | None,
+    filters: list[CombinationFilter] | None = None,
     seed_offset: int = 0,
 ) -> Iterator[GameConfiguration]:
     """
@@ -147,7 +149,7 @@ def generate_combinations(
     #    We want to test every Map/Count combo equally if possible.
     if max_total_runs is None:
         # Infinite/Max mode: Take EVERYTHING from every bucket
-        final_buckets = [b.replace(num_to_draw=b.pool_size) for b in buckets]
+        final_buckets = [replace(b, num_to_draw=b.pool_size) for b in buckets]
     else:
         # Distribute budget evenly
         final_buckets = _distribute_budget(buckets, max_total_runs)
@@ -177,12 +179,11 @@ def generate_combinations(
             # Decode the linear index back into (Team Index, Seed Index)
             # Total Size = Teams * Seeds
             # So:
-            # team_idx = idx // n_seeds
-            # seed_offset_local = idx % n_seeds
+            # team_idx = idx // n_seeds  # noqa: ERA001
+            # seed_offset_local = idx % n_seeds  # noqa: ERA001
 
             # Calculate breakdown
             team_comb_idx = idx // n_seeds
-            local_seed_idx = idx % n_seeds
 
             # A. Unrank the racers
             # "get_combination_at_index" gives us indices like [0, 5, 12]
@@ -191,7 +192,39 @@ def generate_combinations(
                 bucket.racer_count,
                 team_comb_idx,
             )
-            selected_racers = [eligible_racers[i] for i in racer_indices]
+            selected_racers: list[RacerName] = [
+                eligible_racers[i] for i in racer_indices
+            ]
+
+            # --- FILTER CHECK START ---
+            if filters:
+                # Convert list to set for O(1) subset checks
+                current_racers_set = set(selected_racers)
+                should_skip = False
+
+                for f in filters:
+                    # 1. Check Board Match
+                    # If filter.boards is set, current bucket.board must be in it.
+                    # If filter.boards is empty, it applies to ALL boards.
+                    board_match = (not f.boards) or (bucket.board in f.boards)
+
+                    if not board_match:
+                        continue
+
+                    # 2. Check Racer Match
+                    # If filter.racers is set, current racers must contain ALL of them (subset).
+                    # If filter.racers is empty, it applies to ANY combination.
+                    racer_match = (not f.racers) or f.racers.issubset(
+                        current_racers_set,
+                    )
+
+                    if racer_match:
+                        should_skip = True
+                        break
+
+                if should_skip:
+                    continue
+            # --- FILTER CHECK END ---
 
             # B. Handle Seed & Shuffle
             # Use a deterministic seed based on the request (for reproducibility)
@@ -227,7 +260,7 @@ def _distribute_budget(
         # How much does each remaining bucket get?
         share = math.ceil(remaining_budget / len(pending_buckets))
 
-        still_pending = []
+        still_pending: list[TaskBucket] = []
         for b in pending_buckets:
             # If bucket is smaller than share, take all of it
             if b.pool_size <= share:

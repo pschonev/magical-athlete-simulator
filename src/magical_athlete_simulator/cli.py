@@ -102,6 +102,7 @@ class Args:
             runs_per_combination=runs_per_combo,
             max_total_runs=max_total,
             seed_offset=self.seed_offset,
+            filters=config.filters,
         )
 
         db = SimulationDatabase(RESULTS_DIR)
